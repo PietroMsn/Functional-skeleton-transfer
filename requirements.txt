@@ -1,0 +1,7 @@
+numpy==1.18.1
+scipy==1.6.0
+tensorflow==2.0.0-alpha0
+pyflann-py3
+robust_laplacian==0.1.0
+pyvista==0.26.0
+
