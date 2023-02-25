@@ -45,3 +45,17 @@ Any other use, in particular any use for commercial purposes, is prohibited. Thi
 ## Acknowledgements
   
 RM and SM are supported by the ERC Starting Grant No. 802554 (SPECGEO). This work is partially supported by the project of the Italian Ministry of Education, Universities and Research (MIUR) ”Dipartimenti di Eccellenza 2018-2022” of the Department of Computer Science of Sapienza University and the Department of Computer Science of Verona University
+
+If you use this code in you paper, please cite:
+```
+@article{functionalskeletontransfer,
+  title={A functional skeleton transfer},
+  author={Musoni, Pietro and Marin, Riccardo and Melzi, Simone and Castellani, Umberto},
+  journal={Proceedings of the ACM on Computer Graphics and Interactive Techniques},
+  volume={4},
+  number={3},
+  pages={1--15},
+  year={2021},
+  publisher={ACM New York, NY, USA}
+}
+```
