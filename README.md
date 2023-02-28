@@ -46,7 +46,7 @@ Any other use, in particular any use for commercial purposes, is prohibited. Thi
   
 RM and SM are supported by the ERC Starting Grant No. 802554 (SPECGEO). This work is partially supported by the project of the Italian Ministry of Education, Universities and Research (MIUR) ”Dipartimenti di Eccellenza 2018-2022” of the Department of Computer Science of Sapienza University and the Department of Computer Science of Verona University
 
-If you use this code in you paper, please cite:
+If you use this code in your paper, please cite:
 ```
 @article{functionalskeletontransfer,
   title={A functional skeleton transfer},
