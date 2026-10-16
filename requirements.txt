@@ -1,7 +1,11 @@
-numpy==1.18.1
-scipy==1.6.0
-tensorflow==2.0.0-alpha0
-pyflann-py3
-robust_laplacian==0.1.0
-pyvista==0.26.0
+# Core
+numpy>=1.20
+scipy>=1.6
+tensorflow>=2.4          # (tensorflow-cpu is enough)
+robust_laplacian>=0.1
 
+# Visualization (optional, only needed to open the 3D viewer)
+pyvista>=0.30
+
+# Tested with: Python 3.13, numpy 2.5, scipy 1.18, tensorflow-cpu 2.21,
+# robust_laplacian 1.1, pyvista 0.49
