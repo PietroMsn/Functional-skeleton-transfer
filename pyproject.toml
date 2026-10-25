@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skeleton-transfer"
+version = "1.0.0"
+description = "A Functional Skeleton Transfer (Musoni, Marin, Melzi, Castellani - PACMCGIT 2021)"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Pietro Musoni" },
+    { name = "Riccardo Marin" },
+    { name = "Simone Melzi" },
+    { name = "Umberto Castellani" },
+]
+keywords = ["skeleton transfer", "rigging", "functional maps", "shape analysis", "SMPL"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    "numpy>=1.20",
+    "scipy>=1.6",
+    "robust_laplacian>=0.1",
+]
+
+[project.optional-dependencies]
+viz = ["pyvista>=0.30"]
+io = ["trimesh>=3.9"]
+dev = ["pytest>=7"]
+all = ["skeleton-transfer[viz,io,dev]"]
+
+[project.scripts]
+skeleton-transfer = "skeleton_transfer.cli:main"
+
+[project.urls]
+Repository = "https://github.com/PietroMsn/Functional-skeleton-transfer"
+
+[tool.setuptools]
+packages = ["skeleton_transfer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

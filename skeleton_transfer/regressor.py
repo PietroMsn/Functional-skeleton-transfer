@@ -16,6 +16,28 @@ The energy minimized by :func:`fit_spatial_regressor` is
     E(R) = w_fit * ||R V - J||^2
          + w_loc * ||R * (1 - F)||^2          (coefficients outside the mask)
          + w_pou * ||R 1 - 1||^2
+
+(In the paper this is Eq. 13; its locality and sparsity terms coincide for a
+binary mask and are merged here into ``w_loc``.)
+
+Closed-form solution
+--------------------
+``E`` is quadratic and the rows of ``R`` are independent. For one joint with
+row ``r`` write the two data terms as ``||A r - b||^2`` with
+
+    A = [sqrt(w_fit) V^T ; sqrt(w_pou) 1^T]      (4, n_vertices)
+    b = [sqrt(w_fit) J_j ; sqrt(w_pou)]          (4,)
+
+and split ``r`` into the coefficients inside (``S``) and outside (``O``) the
+mask. For a fixed ``r_S`` the optimal ``r_O`` is a ridge regression,
+
+    r_O = A_O^T (A_O A_O^T + w_loc I)^-1 (b - A_S r_S),
+
+and substituting it back leaves ``(A_S r_S - b)^T K (A_S r_S - b)`` with the
+4x4 matrix ``K = w_loc (A_O A_O^T + w_loc I)^-1``. Its minimizer is not unique
+(4 equations, ``|S|`` unknowns): we take the minimum-norm one, which spreads
+the weight evenly over the vertices of the mask. The original implementation
+approximated the minimizer with 1000 Adam iterations started from ``R = 0``.
 """
 
 import numpy as np
@@ -37,53 +59,57 @@ def locality_mask(skinning_weights: np.ndarray, parents: np.ndarray, threshold: 
     return (influenced & influenced[:, parents]).T.astype(float)
 
 
+def regressor_energy(
+    regressor: np.ndarray, vertices: np.ndarray, joints: np.ndarray, mask: np.ndarray, cfg: RegressorConfig
+) -> float:
+    """Value of the energy ``E(R)`` minimized by :func:`fit_spatial_regressor`."""
+    fit = np.sum((regressor @ vertices - joints) ** 2)
+    locality = np.sum((regressor * (1.0 - mask)) ** 2)
+    partition_of_unity = np.sum((regressor.sum(axis=1) - 1.0) ** 2)
+    return float(
+        cfg.weight_fit * fit + cfg.weight_locality * locality + cfg.weight_partition_of_unity * partition_of_unity
+    )
+
+
 def fit_spatial_regressor(
     vertices: np.ndarray,
     joints: np.ndarray,
     mask: np.ndarray,
     cfg: RegressorConfig,
 ) -> np.ndarray:
-    """Fit the localized regressor with Adam, starting from ``R = 0``.
+    """Exact (minimum-norm) minimizer of the regressor energy.
 
     Parameters
     ----------
     vertices : (n_vertices, 3) source vertices
     joints : (n_joints, 3) source joints
     mask : (n_joints, n_vertices) locality mask, see :func:`locality_mask`
-    cfg : weights and optimizer settings
+    cfg : energy weights
 
     Returns
     -------
     (n_joints, n_vertices) regressor ``R``.
     """
-    import tensorflow as tf  # imported lazily: only needed for the optimization
-
     n_joints, n_vertices = mask.shape
-    V = tf.constant(vertices, dtype=tf.float64)
-    J = tf.constant(joints, dtype=tf.float64)
-    outside_mask = tf.constant(1.0 - mask, dtype=tf.float64)
-    ones_v = tf.ones((n_vertices, 1), dtype=tf.float64)
-    ones_j = tf.ones((n_joints, 1), dtype=tf.float64)
+    w_loc = cfg.weight_locality
+    A = np.vstack((np.sqrt(cfg.weight_fit) * vertices.T, np.sqrt(cfg.weight_partition_of_unity) * np.ones(n_vertices)))
+    # A A^T over all vertices; the part outside the mask is obtained by
+    # subtracting the (usually much smaller) part inside it.
+    gram_all = A @ A.T
 
-    R = tf.Variable(tf.zeros((n_joints, n_vertices), dtype=tf.float64))
-    optimizer = tf.keras.optimizers.Adam(cfg.learning_rate)
+    R = np.zeros((n_joints, n_vertices))
+    for j in range(n_joints):
+        inside = mask[j] > 0
+        A_S = A[:, inside]
+        b = np.append(np.sqrt(cfg.weight_fit) * joints[j], np.sqrt(cfg.weight_partition_of_unity))
 
-    def energy():
-        fit = tf.reduce_sum((R @ V - J) ** 2)
-        locality = tf.reduce_sum((R * outside_mask) ** 2)
-        partition_of_unity = tf.reduce_sum((R @ ones_v - ones_j) ** 2)
-        return (
-            cfg.weight_fit * fit
-            + cfg.weight_locality * locality
-            + cfg.weight_partition_of_unity * partition_of_unity
-        )
+        gram_out_reg = gram_all - A_S @ A_S.T + w_loc * np.eye(len(b))
+        K = w_loc * np.linalg.inv(gram_out_reg)
+        L = np.linalg.cholesky(K)  # K = L L^T
 
-    for it in range(cfg.n_iterations):
-        with tf.GradientTape() as tape:
-            loss = energy()
-        grads = tape.gradient(loss, [R])
-        optimizer.apply_gradients(zip(grads, [R]))
-        if cfg.log_every and it % cfg.log_every == 0:
-            print(f"Regressor iteration {it}: loss = {loss.numpy():.6g}")
+        r_S = np.linalg.lstsq(L.T @ A_S, L.T @ b, rcond=None)[0] if inside.any() else np.zeros(0)
+        r_O = A[:, ~inside].T @ np.linalg.solve(gram_out_reg, b - A_S @ r_S)
 
-    return R.numpy()
+        R[j, inside] = r_S
+        R[j, ~inside] = r_O
+    return R

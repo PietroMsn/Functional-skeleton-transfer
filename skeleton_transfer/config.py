@@ -10,7 +10,7 @@ Example
 >>> from skeleton_transfer import TransferConfig
 >>> cfg = TransferConfig()
 >>> cfg.functional_map.n_eigs_final = 80      # smaller final map
->>> cfg.regressor.n_iterations = 500          # faster regressor fit
+>>> cfg.regressor.skinning_weight_threshold = 0.2  # tighter locality mask
 """
 
 from dataclasses import dataclass, field
@@ -54,10 +54,6 @@ class FunctionalMapConfig:
     weight_descriptors: float = 1e-1
     #: Weight of the Laplacian commutativity term ``||C L_s - L_t C||^2``.
     weight_laplacian: float = 1e-8
-    #: Adam learning rate for the initial map.
-    learning_rate: float = 1e-1
-    #: Number of Adam iterations for the initial map.
-    n_iterations: int = 1000
 
     # --- refinement ---------------------------------------------------------
     #: Number of ICP iterations (orthogonal refinement of the initial map).
@@ -79,13 +75,6 @@ class RegressorConfig:
     weight_locality: float = 1100.0
     #: Weight of the partition-of-unity term ``||R 1 - 1||^2``.
     weight_partition_of_unity: float = 10.0
-
-    #: Adam learning rate.
-    learning_rate: float = 0.1
-    #: Number of Adam iterations.
-    n_iterations: int = 1000
-    #: Print the loss every ``log_every`` iterations (0 disables logging).
-    log_every: int = 20
 
 
 @dataclass

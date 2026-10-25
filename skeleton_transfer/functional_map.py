@@ -15,8 +15,8 @@ Throughout this module the map goes **from the target to the source**:
 Pipeline (:func:`estimate_functional_map`)
 ------------------------------------------
 1. WKS + landmark WKM descriptors on both shapes (:mod:`.descriptors`);
-2. a small ``n_eigs_init`` map is optimized with Adam so that it preserves
-   the descriptors and commutes with the Laplacians;
+2. a small ``n_eigs_init`` map is computed in closed form so that it
+   preserves the descriptors and commutes with the Laplacians;
 3. ICP refinement: alternate nearest neighbours in the spectral embedding and
    projection of the map onto the orthogonal matrices;
 4. ZoomOut (Melzi et al. 2019): iteratively grow the map to ``n_eigs_final``
@@ -103,40 +103,48 @@ def compute_descriptors(basis: LaplaceBasis, landmarks: np.ndarray, cfg: Functio
 # ----------------------------------------------------------------------------
 
 
+def functional_map_energy(
+    C: np.ndarray,
+    desc_coeffs_tgt: np.ndarray,
+    desc_coeffs_src: np.ndarray,
+    evals_tgt: np.ndarray,
+    evals_src: np.ndarray,
+    cfg: FunctionalMapConfig,
+) -> float:
+    """Value of the energy minimized by :func:`optimize_initial_map`."""
+    descriptor_term = np.sum((C @ desc_coeffs_tgt - desc_coeffs_src) ** 2) / 2
+    laplacian_term = np.sum((C * (evals_tgt[None, :] - evals_src[:, None])) ** 2)
+    return float(cfg.weight_descriptors * descriptor_term + cfg.weight_laplacian * laplacian_term)
+
+
 def optimize_initial_map(
     desc_coeffs_tgt: np.ndarray,
     desc_coeffs_src: np.ndarray,
     evals_tgt: np.ndarray,
     evals_src: np.ndarray,
-    C_init: np.ndarray,
     cfg: FunctionalMapConfig,
 ) -> np.ndarray:
-    """Minimize the classic functional map energy with Adam.
+    """Exact minimizer of the classic functional map energy
 
         E(C) = w_d / 2 * ||C A_tgt - A_src||^2  +  w_l * ||C L_tgt - L_src C||^2
 
     where ``A`` are the spectral coefficients of the descriptors (one column per
     descriptor) and ``L`` the diagonal matrices of eigenvalues.
+
+    Since the ``L`` are diagonal, ``(C L_tgt - L_src C)_ij = C_ij (l_tgt_j -
+    l_src_i)`` and ``E`` splits over the rows of ``C``. Row ``i`` solves
+
+        (w_d A_tgt A_tgt^T + 2 w_l diag((l_tgt - l_src_i)^2)) c_i = w_d A_tgt a_src_i
+
+    (The original implementation approximated it with 1000 Adam iterations.)
     """
-    import tensorflow as tf  # imported lazily: only needed for the optimization
-
-    A_tgt = tf.constant(desc_coeffs_tgt, dtype=tf.float32)
-    A_src = tf.constant(desc_coeffs_src, dtype=tf.float32)
-    L_tgt = tf.linalg.diag(tf.constant(evals_tgt, dtype=tf.float32))
-    L_src = tf.linalg.diag(tf.constant(evals_src, dtype=tf.float32))
-
-    C = tf.Variable(C_init, dtype=tf.float32)
-    optimizer = tf.keras.optimizers.Adam(cfg.learning_rate)
-
-    for _ in range(cfg.n_iterations):
-        with tf.GradientTape() as tape:
-            descriptor_term = tf.reduce_sum((tf.matmul(C, A_tgt) - A_src) ** 2) / 2
-            laplacian_term = tf.reduce_sum((tf.matmul(C, L_tgt) - tf.matmul(L_src, C)) ** 2)
-            loss = cfg.weight_descriptors * descriptor_term + cfg.weight_laplacian * laplacian_term
-        grads = tape.gradient(loss, [C])
-        optimizer.apply_gradients(zip(grads, [C]))
-
-    return C.numpy()
+    gram = cfg.weight_descriptors * desc_coeffs_tgt @ desc_coeffs_tgt.T
+    rhs = cfg.weight_descriptors * desc_coeffs_tgt @ desc_coeffs_src.T  # column i -> row i of C
+    C = np.empty((len(evals_src), len(evals_tgt)))
+    for i, l_src in enumerate(evals_src):
+        system = gram + np.diag(2 * cfg.weight_laplacian * (evals_tgt - l_src) ** 2)
+        C[i] = np.linalg.lstsq(system, rhs[:, i], rcond=None)[0]
+    return C
 
 
 # ----------------------------------------------------------------------------
@@ -212,13 +220,7 @@ def estimate_functional_map(
     desc_tgt = desc_tgt / norms
     desc_src = desc_src / norms
 
-    # 2) Initial map. The constant function is mapped exactly: its
-    #    coefficient only depends on the ratio of the areas (and on the
-    #    arbitrary sign of the first eigenfunctions).
-    C_init = np.zeros((k, k))
-    C_init[0, 0] = np.sign(basis_tgt.evecs[0, 0] * basis_src.evecs[0, 0]) * np.sqrt(
-        basis_src.area / basis_tgt.area
-    )
+    # 2) Initial map
     evals_tgt = np.maximum(basis_tgt.evals, MIN_EIGENVALUE)
     evals_src = np.maximum(basis_src.evals, MIN_EIGENVALUE)
     C = optimize_initial_map(
@@ -226,16 +228,13 @@ def estimate_functional_map(
         desc_coeffs_src=basis_src.project(desc_src, k),
         evals_tgt=evals_tgt[:k],
         evals_src=evals_src[:k],
-        C_init=C_init,
         cfg=cfg,
     )
 
     # 3) ICP refinement -> point-to-point map
-    print("ICP refinement...")
     p2p = icp_refine(C, basis_src.evecs, basis_tgt.evecs, cfg.n_icp_iterations)
 
     # 4) ZoomOut up to the final size
-    print("ZoomOut...")
     C, p2p = zoomout(
         p2p, basis_src.evecs, basis_tgt.evecs, k, cfg.n_eigs_final, cfg.zoomout_step
     )

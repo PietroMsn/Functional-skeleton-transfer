@@ -16,6 +16,7 @@ All indices (faces, landmarks) are stored **0-based**, even though the
 provided ``.mat`` files use MATLAB's 1-based convention.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -151,3 +152,107 @@ def read_off(path: str):
     vertices = np.array(tokens[:n_vertices], dtype=float)[:, :3]
     faces = np.array([t[1:4] for t in tokens[n_vertices : n_vertices + n_faces]], dtype=int)
     return vertices, faces
+
+
+def read_obj(path: str):
+    """Read the vertices and faces of a Wavefront OBJ file.
+
+    Polygons with more than three vertices are fan-triangulated; texture and
+    normal indices (``f 1/2/3``) are ignored. A file without faces is
+    returned as a point cloud (``faces is None``).
+
+    Returns
+    -------
+    vertices : (n_vertices, 3) float array
+    faces : (n_faces, 3) int array, 0-based, or None
+    """
+    vertices, faces = [], []
+    with open(path) as f:
+        for line in f:
+            parts = line.split()
+            if not parts:
+                continue
+            if parts[0] == "v":
+                vertices.append([float(x) for x in parts[1:4]])
+            elif parts[0] == "f":
+                idx = [int(p.split("/")[0]) for p in parts[1:]]
+                # negative indices are relative to the end of the vertex list
+                idx = [i - 1 if i > 0 else len(vertices) + i for i in idx]
+                faces.extend([idx[0], idx[i], idx[i + 1]] for i in range(1, len(idx) - 1))
+    return np.array(vertices, dtype=float), (np.array(faces, dtype=int) if faces else None)
+
+
+def load_mesh(path: str):
+    """Read a mesh or point cloud from disk.
+
+    ``.off`` and ``.obj`` are read natively; any other format (``.ply``,
+    ``.stl``, ...) is delegated to ``trimesh``, if installed.
+
+    Returns
+    -------
+    vertices : (n_vertices, 3) float array
+    faces : (n_faces, 3) int array, 0-based, or None for a point cloud
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".off":
+        return read_off(path)
+    if ext == ".obj":
+        return read_obj(path)
+    try:
+        import trimesh
+    except ImportError as err:
+        raise ImportError(f"Reading '{ext}' files requires trimesh: pip install trimesh") from err
+    geometry = trimesh.load(path, process=False)
+    faces = getattr(geometry, "faces", None)
+    if faces is not None and len(faces) == 0:
+        faces = None
+    return np.asarray(geometry.vertices, dtype=float), (None if faces is None else np.asarray(faces, dtype=int))
+
+
+def load_landmarks(path: str, one_based: bool = False) -> np.ndarray:
+    """Read landmark vertex indices from a text file.
+
+    Indices may be separated by whitespace, commas or newlines; ``#`` starts
+    a comment.
+    """
+    with open(path) as f:
+        tokens = [line.split("#")[0].replace(",", " ").split() for line in f]
+    landmarks = np.array([int(t) for line in tokens for t in line], dtype=int)
+    return landmarks - 1 if one_based else landmarks
+
+
+def load_target(
+    path: str,
+    landmarks=None,
+    one_based_landmarks: bool = False,
+    point_cloud: bool = False,
+) -> TargetShape:
+    """Load a target shape from any supported file.
+
+    Parameters
+    ----------
+    path : ``.mat`` (fields ``vertex``, ``faces``, ``landmarkRes``, see
+        :func:`load_target_mat`) or a mesh / point cloud file readable by
+        :func:`load_mesh`
+    landmarks : landmark vertex indices, as an array or as the path of a text
+        file. Required for mesh files, optional for ``.mat`` files (overrides
+        the ones stored in the file).
+    one_based_landmarks : the given landmarks use 1-based (MATLAB) indices
+    point_cloud : drop the faces and treat the shape as a point cloud
+    """
+    if path.lower().endswith(".mat"):
+        target = load_target_mat(path)
+    else:
+        if landmarks is None:
+            raise ValueError(f"Landmarks are required for '{path}' (pass an array or a text file).")
+        vertices, faces = load_mesh(path)
+        target = TargetShape(vertices=vertices, faces=faces, landmarks=np.zeros(0, dtype=int))
+
+    if landmarks is not None:
+        if isinstance(landmarks, (str, os.PathLike)):
+            target.landmarks = load_landmarks(landmarks, one_based_landmarks)
+        else:
+            target.landmarks = np.asarray(landmarks, dtype=int).ravel() - (1 if one_based_landmarks else 0)
+    if point_cloud:
+        target.faces = None
+    return target

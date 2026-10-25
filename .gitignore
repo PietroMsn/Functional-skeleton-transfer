@@ -5,3 +5,6 @@ venv/
 *.npz
 .idea/
 .vscode/
+!tests/data/*.npz
+*.egg-info/
+.pytest_cache/

@@ -37,7 +37,7 @@ Package layout
 """
 
 from .config import FunctionalMapConfig, RegressorConfig, SpectralConfig, TransferConfig
-from .shapes import SourceShape, TargetShape, load_smpl_source, load_target_mat
+from .shapes import SourceShape, TargetShape, load_mesh, load_smpl_source, load_target, load_target_mat
 from .transfer import TransferResult, transfer_skeleton
 
 __all__ = [
@@ -47,7 +47,9 @@ __all__ = [
     "TransferConfig",
     "SourceShape",
     "TargetShape",
+    "load_mesh",
     "load_smpl_source",
+    "load_target",
     "load_target_mat",
     "TransferResult",
     "transfer_skeleton",

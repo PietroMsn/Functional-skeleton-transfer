@@ -74,8 +74,11 @@ def compute_laplace_basis(
     else:
         L, M = robust_laplacian.mesh_laplacian(vertices, np.asarray(faces, dtype=int))
 
-    # Shift-invert around 0 to get the smallest eigenvalues.
-    eig_kwargs = dict(k=n_eigs, M=M, sigma=0.0, which="LM", tol=1e-15)
+    # Shift-invert around 0 to get the smallest eigenvalues. A fixed starting
+    # vector makes the result (including the eigenvector signs) reproducible;
+    # ARPACK would otherwise start from a random vector.
+    v0 = np.ones(vertices.shape[0])
+    eig_kwargs = dict(k=n_eigs, M=M, sigma=0.0, which="LM", tol=1e-15, v0=v0)
     try:
         evals, evecs = eigsh(L, **eig_kwargs)
     except RuntimeError:

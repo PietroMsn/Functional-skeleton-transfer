@@ -24,6 +24,7 @@ Given a rigged :class:`~skeleton_transfer.shapes.SourceShape` and an unrigged
 Both results are expressed in the coordinate frame of the input target.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,6 +35,8 @@ from .functional_map import estimate_functional_map
 from .regressor import fit_spatial_regressor, locality_mask
 from .shapes import SourceShape, TargetShape
 from .spectral import LaplaceBasis, compute_laplace_basis
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -86,21 +89,21 @@ def transfer_skeleton(
         source.skinning_weights, source.parents, config.regressor.skinning_weight_threshold
     )
     if regressor is None:
-        print("Fitting the joint regressor on the source...")
+        logger.info("Fitting the joint regressor on the source...")
         regressor = fit_spatial_regressor(source.vertices, source.joints, mask, config.regressor)
 
     # 2) Laplace-Beltrami bases
-    print("Computing the Laplace-Beltrami bases...")
+    logger.info("Computing the Laplace-Beltrami bases...")
     if basis_src is None:
         basis_src = compute_laplace_basis(
-            source.vertices, source.faces, config.spectral.n_eigs, config.source_is_point_cloud
+            source.vertices, source.faces, config.spectral.n_eigs, config.source_is_point_cloud or source.faces is None
         )
     basis_tgt = compute_laplace_basis(
-        target.vertices, target.faces, config.spectral.n_eigs, config.target_is_point_cloud
+        target.vertices, target.faces, config.spectral.n_eigs, config.target_is_point_cloud or target.faces is None
     )
 
     # 3) Correspondence
-    print("Estimating the functional map...")
+    logger.info("Estimating the functional map...")
     fmap = estimate_functional_map(
         basis_src, basis_tgt, source.landmarks, target.landmarks, config.functional_map
     )
