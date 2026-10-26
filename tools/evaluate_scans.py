@@ -7,13 +7,15 @@ registered SMPL body, the gender and a category), by the dataset adapters in
 ``tools/datasets/``. Then, from the repository root::
 
     python tools/evaluate_scans.py samples/ --source data/basicmodel_m_lbs.mat \\
-        --smpl-male SMPL_MALE.pkl --smpl-female SMPL_FEMALE.pkl --out scans.pkl
+        --smpl-dir path/to/SMPL_python_v.1.1.0/smpl/models --out scans.pkl
 
-The source is the SMPL template (as in the paper); the ``--smpl-*`` models
-only provide the gender-specific joint regressors used for the ground truth
-when a sample does not store its joints. Results are reported per category
-(``--group-by`` can also group by gender or by the first path components of
-the sample names), with the same tables as the synthetic benchmark.
+The source is the SMPL neutral template, as in the paper (the example file
+``data/basicmodel_m_lbs.mat`` is the neutral model, despite its name). The
+gender-specific models, found in ``--smpl-dir`` or given one by one with
+``--smpl-male`` etc., only provide the joint regressors used for the ground
+truth when a sample does not store its joints. Results are reported per
+category (or per gender, with ``--group-by gender``), with the same tables as
+the synthetic benchmark.
 """
 
 import argparse
@@ -26,15 +28,16 @@ import numpy as np
 
 from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, report
 from skeleton_transfer.scans import load_sample, make_target
-from skeleton_transfer.smpl import SMPLModel
+from skeleton_transfer.smpl import SMPLModel, find_smpl_models
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("samples", help="folder with the exported .npz samples (searched recursively)")
     parser.add_argument("--source", default="data/basicmodel_m_lbs.mat", help="SMPL model used as source")
+    parser.add_argument("--smpl-dir", help="folder with the official SMPL models (male, female, neutral)")
     for gender in ("male", "female", "neutral"):
-        parser.add_argument(f"--smpl-{gender}", help=f"SMPL {gender} model (for its joint regressor)")
+        parser.add_argument(f"--smpl-{gender}", help=f"SMPL {gender} model (overrides --smpl-dir)")
     parser.add_argument("--n-points", type=int, default=8000, help="points sampled on each scan")
     parser.add_argument("--max-distance", type=float, default=0.3, help="drop scan points farther from the body (m)")
     parser.add_argument("--limit", type=int, help="evaluate at most this many samples")
@@ -52,16 +55,18 @@ def main():
 
     source_model = SMPLModel.from_file(args.source)
     regressors = {"neutral": source_model.J_regressor}
+    models = find_smpl_models(args.smpl_dir) if args.smpl_dir else {}
     for gender in ("male", "female", "neutral"):
-        path = getattr(args, f"smpl_{gender}")
+        path = getattr(args, f"smpl_{gender}") or models.get(gender)
         if path:
+            print(f"SMPL {gender}: {path}")
             regressors[gender] = SMPLModel.from_file(path).J_regressor
 
-    paths = sorted(glob.glob(os.path.join(args.samples, "**", "*.npz"), recursive=True))[: args.limit]
-    print(f"{len(paths)} samples")
+    files = sorted(glob.glob(os.path.join(args.samples, "**", "*.npz"), recursive=True))[: args.limit]
+    print(f"{len(files)} samples")
     evaluator = Evaluator(source_model.as_source())
     rng = np.random.default_rng(args.seed)
-    for path in paths:
+    for path in files:
         sample = load_sample(path)
         if sample.joints is None and sample.gender not in regressors:
             logging.warning("No %s SMPL model given, using the source regressor for %s", sample.gender, sample.name)

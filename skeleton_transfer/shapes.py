@@ -80,6 +80,9 @@ class TargetShape:
 def load_smpl_source(path: str, landmarks: np.ndarray = SMPL_LANDMARKS) -> SourceShape:
     """Load the SMPL template from a ``.mat`` export of the SMPL model.
 
+    (The example file ``data/basicmodel_m_lbs.mat`` is the SMPL *neutral*
+    model, despite its name.)
+
     The file must contain the standard SMPL fields: ``v_template``, ``f``,
     ``J_regressor``, ``weights`` and ``kintree_table``. The joints are
     obtained with SMPL's own regressor applied to the rest-pose template.

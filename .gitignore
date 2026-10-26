@@ -8,3 +8,4 @@ venv/
 !tests/data/*.npz
 *.egg-info/
 .pytest_cache/
+samples/

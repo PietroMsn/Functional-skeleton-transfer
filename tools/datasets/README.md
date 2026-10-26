@@ -11,10 +11,21 @@ Each adapter converts the frames of a dataset into the common sample format of
 - optionally `joints` (forward-kinematics joints, if the dataset gives pose and
   shape) and `scan_labels` (per-vertex semantic labels).
 
-Planned adapters (to be written against the downloaded data, so that the
-field names are checked on the real files):
+Adapters:
 
-- `cape.py`: CAPE (per-frame `.npz` with the clothed mesh in SMPL topology,
-  pose parameters, per-subject minimally clothed body shape);
-- `dress4d.py`: 4D-DRESS (`Meshes_pkl/mesh-f*.pkl` scans, `SMPL/mesh-f*_smpl.ply`
-  registrations, `Semantic/labels`, `basic_info.pkl` rotation).
+- `dress4d.py`: 4D-DRESS. Reads the `<subject>_<outfit>.tar.gz` archives as a
+  stream (nothing is extracted to disk) or the extracted folders, keeps a few
+  frames per sequence (`--stride`, `--frames-per-take`), skips images and
+  textures, and computes the exact ground-truth joints from the SMPL parameters
+  and the subject gender. Needs `trimesh` (the scan pickles contain trimesh
+  arrays) and the official SMPL models (`--smpl-dir`):
+
+  ```bash
+  python tools/datasets/dress4d.py path/00123_Outer.tar.gz path/00123_Inner       --smpl-dir path/to/SMPL_python_v.1.1.0/smpl/models --out samples/4ddress
+  ```
+
+- `cape.py` (planned): CAPE (per-frame `.npz` with the clothed mesh in SMPL
+  topology, pose parameters, per-subject minimally clothed body shape).
+
+Exported samples go to `samples/`, which is ignored by git: the datasets'
+licenses do not allow redistributing them.

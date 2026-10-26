@@ -150,13 +150,18 @@ ground-truth skeleton. The evaluation works in two steps:
    landmark vertices of the registration, and compares the pipeline variants:
 
 ```bash
-python tools/evaluate_scans.py samples/ --source data/basicmodel_m_lbs.mat     --smpl-male SMPL_MALE.pkl --smpl-female SMPL_FEMALE.pkl --out scans.pkl
+python tools/evaluate_scans.py samples/ --source data/basicmodel_m_lbs.mat --smpl-dir path/to/SMPL_python_v.1.1.0/smpl/models --out scans.pkl
 ```
 
 The official SMPL `.pkl` files can be read directly (`SMPLModel.from_file`),
-without installing chumpy. When a sample does not store its joints, the
-ground truth is the gender-specific SMPL joint regressor applied to the
+without installing chumpy; `--smpl-dir` finds the male, female and neutral
+models by their release names (`basicmodel_{m,f,neutral}_lbs_*.pkl`, or
+`SMPL_{MALE,FEMALE,NEUTRAL}.pkl`). When a sample does not store its joints,
+the ground truth is the gender-specific SMPL joint regressor applied to the
 registered body.
+
+Note: the example source `data/basicmodel_m_lbs.mat` used in the paper is the
+SMPL *neutral* model (v1.1.0), despite its name.
 
 ## Differences from the original code
 

@@ -6,6 +6,7 @@ pose) for evaluation, see :mod:`skeleton_transfer.synthetic`. It reads the
 ``.mat`` export of the SMPL model that is also used as the transfer source.
 """
 
+import glob
 import os
 import pickle
 from dataclasses import dataclass
@@ -22,6 +23,28 @@ SMPL_JOINT_NAMES = [
     "R_ankle", "spine3", "L_foot", "R_foot", "neck", "L_collar", "R_collar", "head",
     "L_shoulder", "R_shoulder", "L_elbow", "R_elbow", "L_wrist", "R_wrist", "L_hand", "R_hand",
 ]  # fmt: skip
+
+
+#: File name patterns of the official SMPL models, per gender: the v1.1.0
+#: release (``basicmodel_m_lbs_10_207_0_v1.1.0.pkl``, ...) and the names used
+#: by other distributions (``SMPL_MALE.pkl``, ...).
+SMPL_FILE_PATTERNS = {
+    "male": ["basicmodel_m_*", "SMPL_MALE.*"],
+    "female": ["basicmodel_f_*", "SMPL_FEMALE.*"],
+    "neutral": ["basicmodel_neutral_*", "SMPL_NEUTRAL.*"],
+}
+
+
+def find_smpl_models(folder: str) -> dict:
+    """Paths of the male / female / neutral SMPL models found in ``folder``."""
+    found = {}
+    for gender, patterns in SMPL_FILE_PATTERNS.items():
+        for pattern in patterns:
+            matches = sorted(p for p in glob.glob(os.path.join(folder, pattern)) if p.lower().endswith((".pkl", ".npz", ".mat")))
+            if matches:
+                found[gender] = matches[0]
+                break
+    return found
 
 
 class _ChumpyStub:
