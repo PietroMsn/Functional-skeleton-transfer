@@ -29,7 +29,7 @@ import logging
 
 import numpy as np
 
-from . import TransferConfig, load_smpl_source, load_target, transfer_skeleton
+from . import SkeletonPriorConfig, TransferConfig, load_smpl_source, load_target, transfer_skeleton
 
 
 def parse_args(argv=None):
@@ -44,6 +44,9 @@ def parse_args(argv=None):
     parser.add_argument("--one-based-landmarks", action="store_true", help="landmark indices start from 1")
     parser.add_argument(
         "--target-point-cloud", action="store_true", help="treat the target as a point cloud (ignore faces)"
+    )
+    parser.add_argument(
+        "--priors", action="store_true", help="apply left/right symmetry and proportion priors to the joints"
     )
     parser.add_argument("--output", help="save joints, maps and regressor to this .npz file")
     parser.add_argument("--no-plot", action="store_true", help="do not open the 3D viewer")
@@ -93,7 +96,10 @@ def main(argv=None):
         plot_saved_results(args)
         return
 
-    config = TransferConfig(target_is_point_cloud=args.target_point_cloud)
+    config = TransferConfig(
+        target_is_point_cloud=args.target_point_cloud,
+        skeleton_priors=SkeletonPriorConfig() if args.priors else None,
+    )
     # Every parameter can be changed here, e.g.:
     # config.functional_map.n_eigs_final = 80
     # config.regressor.skinning_weight_threshold = 0.2

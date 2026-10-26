@@ -34,6 +34,7 @@ from .config import TransferConfig
 from .functional_map import estimate_functional_map
 from .regressor import fit_spatial_regressor, locality_mask
 from .shapes import SourceShape, TargetShape
+from .skeleton_priors import apply_skeleton_priors, is_plausible
 from .spectral import LaplaceBasis, compute_laplace_basis
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,9 @@ class TransferResult:
     ----------
     joints_spectral : (n_joints, 3) joints transferred through the functional map
     joints_pointwise : (n_joints, 3) joints transferred through the p2p map
+        (both after the skeleton priors, if enabled)
+    plausible : False if the bone proportions of the spectral transfer reveal
+        a failed correspondence (see ``skeleton_priors.is_plausible``)
     regressor : (n_joints, n_source_vertices) regressor fitted on the source
     mask : (n_joints, n_source_vertices) locality mask used for the regressor
     C : (k, k) functional map, target -> source
@@ -59,6 +63,7 @@ class TransferResult:
     mask: np.ndarray
     C: np.ndarray
     p2p: np.ndarray
+    plausible: bool = True
 
 
 def transfer_skeleton(
@@ -116,6 +121,17 @@ def transfer_skeleton(
     # 4b) Pointwise transfer through p2p
     joints_pointwise = regressor @ target.vertices[fmap.p2p]
 
+    # 5) Sanity check and optional skeleton priors
+    plausible = is_plausible(joints_spectral, source.parents, source.joints)
+    if not plausible:
+        logger.warning(
+            "Implausible bone proportions in the transferred skeleton: the correspondence "
+            "probably failed (check the landmarks and the target connectivity)."
+        )
+    if config.skeleton_priors is not None:
+        joints_spectral = apply_skeleton_priors(joints_spectral, source.parents, source.joints, config.skeleton_priors)
+        joints_pointwise = apply_skeleton_priors(joints_pointwise, source.parents, source.joints, config.skeleton_priors)
+
     return TransferResult(
         joints_spectral=joints_spectral,
         joints_pointwise=joints_pointwise,
@@ -123,4 +139,5 @@ def transfer_skeleton(
         mask=mask,
         C=fmap.C,
         p2p=fmap.p2p,
+        plausible=plausible,
     )

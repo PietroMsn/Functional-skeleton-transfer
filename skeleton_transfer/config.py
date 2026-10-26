@@ -14,6 +14,9 @@ Example
 """
 
 from dataclasses import dataclass, field
+from typing import Optional
+
+from .skeleton_priors import SkeletonPriorConfig
 
 
 @dataclass
@@ -89,6 +92,9 @@ class TransferConfig:
     spectral: SpectralConfig = field(default_factory=SpectralConfig)
     functional_map: FunctionalMapConfig = field(default_factory=FunctionalMapConfig)
     regressor: RegressorConfig = field(default_factory=RegressorConfig)
+    #: Symmetry / proportion priors applied to the transferred joints
+    #: (None = off). See :mod:`skeleton_transfer.skeleton_priors`.
+    skeleton_priors: Optional[SkeletonPriorConfig] = None
 
     def validate(self) -> None:
         """Raise ``ValueError`` if the parameters are inconsistent."""

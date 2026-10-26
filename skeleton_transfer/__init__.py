@@ -32,11 +32,15 @@ Package layout
 - :mod:`~skeleton_transfer.descriptors`     WKS / WKM descriptors
 - :mod:`~skeleton_transfer.functional_map`  functional map estimation
 - :mod:`~skeleton_transfer.regressor`       localized joint regressor
+- :mod:`~skeleton_transfer.skeleton_priors` symmetry / proportion priors on the target
+- :mod:`~skeleton_transfer.smpl`            minimal SMPL model (shape + pose)
+- :mod:`~skeleton_transfer.synthetic`       synthetic targets with ground truth
 - :mod:`~skeleton_transfer.transfer`        end-to-end pipeline
 - :mod:`~skeleton_transfer.visualization`   PyVista plotting (optional)
 """
 
 from .config import FunctionalMapConfig, RegressorConfig, SpectralConfig, TransferConfig
+from .skeleton_priors import SkeletonPriorConfig, apply_skeleton_priors
 from .shapes import SourceShape, TargetShape, load_mesh, load_smpl_source, load_target, load_target_mat
 from .transfer import TransferResult, transfer_skeleton
 
@@ -45,6 +49,8 @@ __all__ = [
     "RegressorConfig",
     "SpectralConfig",
     "TransferConfig",
+    "SkeletonPriorConfig",
+    "apply_skeleton_priors",
     "SourceShape",
     "TargetShape",
     "load_mesh",

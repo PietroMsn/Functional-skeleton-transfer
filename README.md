@@ -11,6 +11,7 @@ Musoni, P. and Marin, R. and Melzi, S. and Castellani, U., A Functional Skeleton
 * [How it works](#how-it-works)
 * [Code structure](#code-structure)
 * [Using it from Python](#using-it-from-python)
+* [Skeleton priors and synthetic benchmark](#skeleton-priors-and-synthetic-benchmark)
 * [Differences from the original code](#differences-from-the-original-code)
 * [Requirements and tests](#requirements-and-tests)
 * [License](#license)
@@ -104,6 +105,34 @@ processing many targets you can compute them once and pass them to
 
 To use a different template or target format, build a `SourceShape` /
 `TargetShape` directly from numpy arrays (0-based indices).
+
+## Skeleton priors and synthetic benchmark
+
+`--priors` (or `TransferConfig(skeleton_priors=SkeletonPriorConfig())`) corrects
+the transferred joints so that mirrored bones have the same length and the bone
+proportions match the source up to a global scale
+(`skeleton_transfer/skeleton_priors.py`). Independently of it, every transfer
+checks the bone proportions and sets `result.plausible = False` (with a warning)
+when some bone is shorter than 0.6 or longer than 1.6 times its expected length,
+a strong sign that the correspondence failed.
+
+`tools/benchmark_synthetic.py` measures the joint error against ground truth on
+random SMPL bodies (random shape, poses with 0.3 rad std per joint, 5000-point
+clouds), nude or with two synthetic loose garments: a shirt (torso and arms
+inflated by ~4 cm) and a flared skirt that merges the legs. Mean joint error in
+mm, 8 bodies per condition:
+
+| | nude | shirt | skirt | shirt + skirt |
+| --- | --- | --- | --- | --- |
+| spectral transfer | 27.5 | 42.0 | 94.9 | 337.8 |
+| failures detected by the plausibility check | 0/8 | 2/8 | 5/8 | 7/8 |
+| non-flagged targets, without priors | 27.5 | 33.8 | 59.5 | 76.5 |
+| non-flagged targets, with priors | 26.0 | 32.4 | 57.6 | 75.4 |
+
+The priors give a consistent but small gain (~5%). With loose clothing the
+error is dominated by failures of the correspondence (whole joints mapped onto
+the wrong limb), which the plausibility check detects but no skeleton prior can
+repair.
 
 ## Differences from the original code
 

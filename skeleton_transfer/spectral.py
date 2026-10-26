@@ -15,13 +15,24 @@ vertex) onto the first ``k`` eigenfunctions is
 i.e. ``Phi.T @ M`` is the left pseudo-inverse of ``Phi``.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 import robust_laplacian
 import scipy.sparse as sparse
+from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import eigsh
+
+logger = logging.getLogger(__name__)
+
+#: Upper bound on the neighbours used to connect a point cloud graph.
+MAX_NEIGHBORS = 240
+
+
+def _n_components(L: sparse.spmatrix) -> int:
+    return connected_components(L != 0, directed=False)[0]
 
 
 @dataclass
@@ -70,9 +81,25 @@ def compute_laplace_basis(
     is_point_cloud : use the point-cloud Laplacian instead of the mesh one
     """
     if is_point_cloud:
-        L, M = robust_laplacian.point_cloud_laplacian(vertices)
+        # A disconnected neighbourhood graph (e.g. the hem of a loose skirt
+        # far from the legs) has one zero eigenvalue per component and breaks
+        # the functional map: add neighbours until the graph is connected.
+        n_neighbors = 30
+        L, M = robust_laplacian.point_cloud_laplacian(vertices, n_neighbors=n_neighbors)
+        while _n_components(L) > 1 and n_neighbors < MAX_NEIGHBORS:
+            n_neighbors *= 2
+            L, M = robust_laplacian.point_cloud_laplacian(vertices, n_neighbors=n_neighbors)
+        if n_neighbors > 30:
+            logger.warning("Point cloud graph disconnected with 30 neighbours, using %d.", n_neighbors)
     else:
         L, M = robust_laplacian.mesh_laplacian(vertices, np.asarray(faces, dtype=int))
+    n_components = _n_components(L)
+    if n_components > 1:
+        logger.warning(
+            "The shape has %d connected components: the functional map is unreliable. "
+            "Keep only the largest component or treat the shape as a point cloud.",
+            n_components,
+        )
 
     # Shift-invert around 0 to get the smallest eigenvalues. A fixed starting
     # vector makes the result (including the eigenvector signs) reproducible;
