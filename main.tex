@@ -210,7 +210,10 @@ proportions (Sec.~\ref{sec:exp_failures}).
 % code: commit 4276de0 (refactor/package-structure), tests/test_parity.py
 
 We re-implemented the method in NumPy/SciPy and compared it with the code
-released with the original paper on its example (SMPL template to a remeshed
+released with the original paper on its example (the template of the neutral
+SMPL model\footnote{The example file of the original release,
+\texttt{basicmodel\_m\_lbs.mat}, coincides field by field with the neutral
+SMPL model v1.1.0, despite its name.} to a remeshed
 Dynamic FAUST~\citep{bogo2017dfaust} scan). The Laplace--Beltrami spectra and
 the locality mask coincide. Given the same regressor, our functional-map
 pipeline transfers the same joints within 1.2\,mm, and the point-to-point maps
@@ -256,7 +259,7 @@ a factor of three to five.
 % code: commit 77fccbb (feature/target-skeleton-priors), tools/benchmark_synthetic.py
 
 To evaluate the transfer against ground truth on non-isometric targets we
-generate SMPL~\citep{loper2015smpl} bodies with random shape
+generate bodies with the neutral SMPL model~\citep{loper2015smpl}, with random shape
 ($\bm\beta \sim \mathcal{N}(0, \mathbf{I})$) and pose (axis-angle rotations with
 standard deviation 0.3\,rad per joint, upright root), including the pose
 corrective blend shapes. The true joints are given by the model. Each body is
