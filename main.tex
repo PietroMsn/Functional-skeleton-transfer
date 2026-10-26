@@ -195,8 +195,59 @@ failed correspondence typically maps whole joints onto the wrong limb, which
 stretches or collapses some bones far beyond the natural variability of body
 proportions (Sec.~\ref{sec:exp_failures}).
 
-% \subsection{Robust correspondence}  % TODO: restarts, extra landmarks and
-% iterative skeleton/correspondence refinement, once verified (benchmark running).
+% ----------------------------------------------------------------------------
+\subsection{Robust correspondence}
+\label{sec:robust}
+% ----------------------------------------------------------------------------
+% code: commit 20fc426 (feature/target-skeleton-priors)
+
+Large errors are failures of the correspondence, which no correction of the
+skeleton can repair (Sec.~\ref{sec:exp_failures}). We make the correspondence
+more robust with three complementary components.
+
+\paragraph{Limb landmarks.} Besides the seven landmarks of
+\citet{musoni2021functional} (head, hands, feet, front and back of the torso)
+we optionally use four more: the front of the knees and the tip of the elbows.
+They constrain the limbs, where loose garments hide the geometry the most.
+
+\paragraph{Restarts.} The functional map is refined from a small initial map
+of size $k=20$; a different initial size changes the basin reached by ICP and
+ZoomOut. When the transferred skeleton is implausible
+(Sec.~\ref{sec:plausibility}) we re-estimate the map from initial sizes
+$k \in \{10, 30, 40\}$ and keep the result with the smallest
+$\max_b |\log \rho_b|$, stopping as soon as one is plausible.
+
+\paragraph{Skeleton-guided refinement.} The transferred skeleton carries
+extrinsic, pose-aware information that intrinsic descriptors lack: which
+bone each point belongs to. For a point $x$ and a bone $b$ with segment
+$[\J_{p(b)}, \J_b]$ we define the \emph{bone affinity}
+\begin{equation}
+  a_b(x) = \frac{\exp\!\big(-d_b(x)/\tau\big)}{\sum_{b'} \exp\!\big(-d_{b'}(x)/\tau\big)},
+  \qquad d_b(x) = \operatorname{dist}\!\big(x, [\J_{p(b)}, \J_b]\big),
+\end{equation}
+with $\tau$ equal to $0.25$ times the mean bone length, so that $\mathbf{a}(x)$
+is invariant to scale. On the source the affinities are computed with
+$\J_\M$, on the target with the current transferred skeleton $\J_\N^{(t)}$
+(after the priors of Sec.~\ref{sec:priors}). They are appended to the
+spectral embeddings in the point-to-point step of ZoomOut at the final size
+$k=120$,
+\begin{equation}
+  T(i) = \operatorname*{arg\,min}_{j} \;\big\|\Phi_i - (\Psi\C^\top)_j\big\|^2 + w^2 \|\mathbf{a}^\M(i) - \mathbf{a}^\N(j)\|^2 ,
+\end{equation}
+with $w$ chosen so that the affinities have the median norm of the spectral
+embedding; the functional map is then re-fitted to $T$, and the skeleton is
+transferred again with Eq.~\eqref{eq:transfer}. Each iteration runs three
+such map refinements; we iterate at most eight times.
+
+\paragraph{Unsupervised diagnostics.} To monitor the iterations without
+ground truth we compute, for every intermediate result, the bone-ratio
+deviation $\max_b |\log\rho_b|$, the length difference of mirrored bones, the
+gap between the spectral and the pointwise transfer, the deviation of $\C$
+from orthogonality, the coverage of the target by the point-to-point map, and
+the \emph{segment consistency}: the fraction of source vertices mapped onto a
+target point that is closest to the same bone, the target bones being placed
+by the transferred skeleton. The latter measures the agreement between the map
+and the skeleton, the quantity that the refinement improves.
 
 % ============================================================================
 \section{Experiments}
@@ -332,7 +383,98 @@ symmetry term alone does not help with clothing. The residual error is
 therefore not explained by inconsistent bone lengths but by the placement of
 the joints, and the large errors are failures of the correspondence that no
 prior on the skeleton can repair. This motivates improving the correspondence
-itself. \todo{results of restarts, extra landmarks and iterative refinement.}
+itself.
+
+% ----------------------------------------------------------------------------
+\subsection{Robust correspondence}
+\label{sec:exp_robust}
+% ----------------------------------------------------------------------------
+% code: commit 20fc426, tools/benchmark_synthetic.py -n 6
+
+We compare the components of Sec.~\ref{sec:robust} on six bodies per condition
+(Tab.~\ref{tab:variants}). Every variant shares the target bases; the
+combined variants also force the landmarks to correspond in every
+point-to-point step, which alone has no measurable effect.
+
+\begin{table}[t]
+  \centering
+  \caption{Mean (median) joint error in mm of the spectral transfer on the
+  synthetic benchmark, 6 bodies per condition; failures are transfers with an
+  error above 10\,cm; time per transfer, target basis excluded.}
+  \label{tab:variants}
+  \small
+  \begin{tabular}{lccccrr}
+    \toprule
+    & nude & shirt & skirt & shirt + skirt & failures & time \\
+    \midrule
+    Baseline                 & 23.0 (22.8) & 55.0 (34.8) & 118.8 (81.0) & 227.9 (182.7) & 8/24 & 14\,s \\
+    + limb landmarks         & 23.6 (22.8) & 55.8 (45.2) & 116.9 (73.0) & 190.1 (182.0) & 7/24 & 15\,s \\
+    + restarts               & 23.0 (22.8) & 55.0 (34.8) &  99.6 (71.0) & 182.2 (110.1) & 6/24 & 34\,s \\
+    + guided refinement      & 21.4 (20.2) & 55.7 (32.8) &  95.5 (64.6) & 229.9 (188.6) & 8/24 & 62\,s \\
+    All three                & 22.0 (19.3) & 60.1 (42.8) &  51.2 (51.9) &  70.4 (68.2)  & 2/24 & 177\,s \\
+    All three + priors       & \textbf{19.5} (17.1) & \textbf{54.8} (39.6) & \textbf{47.5} (50.6) & 71.0 (72.4) & 2/24 & 81\,s \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Each component alone gives a limited gain, but their combination is much
+stronger than the sum of the parts: the skirt error drops from 118.8 to
+47.5\,mm ($-60\%$), the shirt-and-skirt error from 227.9 to 71.0\,mm
+($-69\%$), and the failures from eight to two. The refinement needs a
+reasonable starting skeleton: alone it cannot recover from a collapsed map,
+while after the restarts and with the limb landmarks it removes most of the
+residual error, and the skeleton priors stabilize it (the iterations stop
+earlier, hence the shorter time). The gain concentrates on the joints hidden
+by the garments: for the skirt the leg error goes from 206.7 to 87.2\,mm and
+the spine error from 99.9 to 37.4\,mm. The loose shirt is the exception: the
+mean error does not change and the median increases, the legs being placed
+worse (from 45.4 to 64.1\,mm) while the arms improve (from 61.6 to 48.0\,mm).
+The knees remain the least accurate joints (120--141\,mm) when a garment
+covers them.
+
+\paragraph{Unsupervised diagnostics.} Table~\ref{tab:diagnostics} reports how
+well each diagnostic of Sec.~\ref{sec:robust} predicts the true error over all
+the intermediate results of all runs (771 stages). All of them are strongly
+correlated with the error; the segment consistency has the highest rank
+correlation, and the bone ratios, the symmetry and the segment consistency
+separate the failures from the successful transfers with an area under the
+ROC curve of 0.95--0.96.
+
+\begin{table}[t]
+  \centering
+  \caption{Rank correlation (Spearman) of the unsupervised diagnostics with the
+  true joint error, and area under the ROC curve for detecting failures
+  (error $>$ 10\,cm), over 771 intermediate results.}
+  \label{tab:diagnostics}
+  \small
+  \begin{tabular}{lcc}
+    \toprule
+    Diagnostic & Spearman $\rho$ & AUC (failures) \\
+    \midrule
+    Bone-ratio deviation             & 0.86 & 0.95 \\
+    Mirrored-bone difference          & 0.79 & 0.96 \\
+    Spectral / pointwise gap          & 0.81 & 0.84 \\
+    Deviation from orthogonality      & 0.88 & 0.85 \\
+    Coverage of the target            & 0.87 & 0.93 \\
+    Segment consistency               & \textbf{0.89} & 0.95 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Convergence.} The refinement does not reach a fixed point: after
+four iterations the largest joint displacement oscillates around 6\% of the
+mean bone length instead of vanishing, while the error has already reached a
+plateau (with the refinement alone, from 106.2\,mm before the first iteration
+to 100.3\,mm after the fourth and 100.6\,mm after the eighth). A threshold on
+the displacement of the joints is therefore not a usable stopping criterion.
+Choosing, among the iterates, the one with the best diagnostic does not help
+either: the iterations improve the result almost monotonically, and the last
+iterate (48.8\,mm for the combined variant, before the priors) is better than
+the one selected by any diagnostic (49.3\,mm at best, with the segment
+consistency), the best possible choice being 46.5\,mm. The diagnostics are
+instead effective as a stopping criterion: stopping when the segment
+consistency has not improved by more than $0.002$ for two consecutive
+iterations gives 49.4\,mm with 5.4 iterations on average instead of 7.7.
 
 \paragraph{Limitations.} The garments are simple geometric models, not cloth
 simulations; the conclusions must be confirmed on real scans of clothed
