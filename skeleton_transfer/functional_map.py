@@ -24,6 +24,7 @@ Pipeline (:func:`estimate_functional_map`)
 """
 
 from dataclasses import dataclass
+from typing import Optional, Tuple
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -68,17 +69,42 @@ def p2p_to_functional_map(
     return np.linalg.pinv(evecs_src[:, :k]) @ evecs_tgt[p2p, :k]
 
 
+#: Optional pair of per-vertex features ``(F_src, F_tgt)`` appended to the
+#: spectral embeddings in the nearest-neighbour searches.
+Features = Optional[Tuple[np.ndarray, np.ndarray]]
+#: Optional pair of corresponding vertex indices ``(landmarks_src, landmarks_tgt)``.
+Landmarks = Optional[Tuple[np.ndarray, np.ndarray]]
+
+
 def functional_map_to_p2p(
-    C: np.ndarray, evecs_src: np.ndarray, evecs_tgt: np.ndarray
+    C: np.ndarray,
+    evecs_src: np.ndarray,
+    evecs_tgt: np.ndarray,
+    features: Features = None,
+    landmarks: Landmarks = None,
 ) -> np.ndarray:
     """Point-to-point map (source vertex -> target vertex) induced by ``C``.
 
     Each target vertex is embedded with ``C`` into the source spectral space
     and matched to the nearest source vertex embedding.
+
+    Parameters
+    ----------
+    features : extra per-vertex features ``(F_src, F_tgt)``, already scaled,
+        concatenated to the spectral embeddings before the search
+    landmarks : ``(landmarks_src, landmarks_tgt)``; the source landmarks are
+        forced to map onto the target ones
     """
     k_src, k_tgt = C.shape
-    embedded_tgt = evecs_tgt[:, :k_tgt] @ C.T
-    return nearest_neighbors(embedded_tgt, evecs_src[:, :k_src])
+    points = evecs_tgt[:, :k_tgt] @ C.T
+    queries = evecs_src[:, :k_src]
+    if features is not None:
+        points = np.hstack((points, features[1]))
+        queries = np.hstack((queries, features[0]))
+    p2p = nearest_neighbors(points, queries)
+    if landmarks is not None:
+        p2p[landmarks[0]] = landmarks[1]
+    return p2p
 
 
 # ----------------------------------------------------------------------------
@@ -152,7 +178,9 @@ def optimize_initial_map(
 # ----------------------------------------------------------------------------
 
 
-def icp_refine(C: np.ndarray, evecs_src: np.ndarray, evecs_tgt: np.ndarray, n_iterations: int) -> np.ndarray:
+def icp_refine(
+    C: np.ndarray, evecs_src: np.ndarray, evecs_tgt: np.ndarray, n_iterations: int, landmarks: Landmarks = None
+) -> np.ndarray:
     """Spectral ICP: alternate nearest neighbours and orthogonal projection.
 
     Returns the point-to-point map (source -> target) obtained at the last
@@ -161,7 +189,7 @@ def icp_refine(C: np.ndarray, evecs_src: np.ndarray, evecs_tgt: np.ndarray, n_it
     k_src, k_tgt = C.shape
     p2p = None
     for _ in range(n_iterations):
-        p2p = functional_map_to_p2p(C, evecs_src, evecs_tgt)
+        p2p = functional_map_to_p2p(C, evecs_src, evecs_tgt, landmarks=landmarks)
         # Best map for this p2p, then closest orthogonal matrix (via SVD).
         W = np.linalg.lstsq(evecs_src[:, :k_src], evecs_tgt[p2p, :k_tgt], rcond=None)[0]
         U, _, Vt = np.linalg.svd(W)
@@ -170,7 +198,13 @@ def icp_refine(C: np.ndarray, evecs_src: np.ndarray, evecs_tgt: np.ndarray, n_it
 
 
 def zoomout(
-    p2p: np.ndarray, evecs_src: np.ndarray, evecs_tgt: np.ndarray, k_init: int, k_final: int, step: int
+    p2p: np.ndarray,
+    evecs_src: np.ndarray,
+    evecs_tgt: np.ndarray,
+    k_init: int,
+    k_final: int,
+    step: int,
+    landmarks: Landmarks = None,
 ):
     """ZoomOut upsampling of a point-to-point map.
 
@@ -185,8 +219,35 @@ def zoomout(
     """
     C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k_init)
     for k in range(k_init, k_final, step):
-        p2p = functional_map_to_p2p(C, evecs_src[:, :k], evecs_tgt[:, :k])
+        p2p = functional_map_to_p2p(C, evecs_src[:, :k], evecs_tgt[:, :k], landmarks=landmarks)
         C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k + step)
+    return C, p2p
+
+
+def refine_with_features(
+    p2p: np.ndarray,
+    evecs_src: np.ndarray,
+    evecs_tgt: np.ndarray,
+    k: int,
+    n_iterations: int,
+    features: Features = None,
+    landmarks: Landmarks = None,
+):
+    """ZoomOut-like iterations at a fixed size ``k``, with extra features.
+
+    Alternates ``C = p2p -> functional map`` and ``p2p = NN([Phi_src, F_src],
+    [Phi_tgt C^T, F_tgt])``: the features (e.g. derived from the current
+    skeleton) steer the point-to-point map, the functional map keeps it smooth.
+
+    Returns
+    -------
+    C : (k, k) functional map
+    p2p : point-to-point map (source -> target)
+    """
+    C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k)
+    for _ in range(n_iterations):
+        p2p = functional_map_to_p2p(C, evecs_src[:, :k], evecs_tgt[:, :k], features, landmarks)
+        C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k)
     return C, p2p
 
 
@@ -201,6 +262,7 @@ def estimate_functional_map(
     landmarks_src: np.ndarray,
     landmarks_tgt: np.ndarray,
     cfg: FunctionalMapConfig,
+    n_eigs_init: Optional[int] = None,
 ) -> FunctionalMapResult:
     """Estimate the functional map from the target to the source.
 
@@ -209,8 +271,11 @@ def estimate_functional_map(
     basis_src, basis_tgt : Laplace bases of the two shapes
     landmarks_src, landmarks_tgt : corresponding landmark vertex indices
     cfg : functional map parameters
+    n_eigs_init : overrides ``cfg.n_eigs_init`` (used to restart from a
+        different initial map)
     """
-    k = cfg.n_eigs_init
+    k = cfg.n_eigs_init if n_eigs_init is None else n_eigs_init
+    forced = (landmarks_src, landmarks_tgt) if cfg.enforce_landmarks else None
 
     # 1) Descriptors. They are normalized on both shapes with the same
     #    per-descriptor norm, measured on the target.
@@ -232,10 +297,10 @@ def estimate_functional_map(
     )
 
     # 3) ICP refinement -> point-to-point map
-    p2p = icp_refine(C, basis_src.evecs, basis_tgt.evecs, cfg.n_icp_iterations)
+    p2p = icp_refine(C, basis_src.evecs, basis_tgt.evecs, cfg.n_icp_iterations, forced)
 
     # 4) ZoomOut up to the final size
     C, p2p = zoomout(
-        p2p, basis_src.evecs, basis_tgt.evecs, k, cfg.n_eigs_final, cfg.zoomout_step
+        p2p, basis_src.evecs, basis_tgt.evecs, k, cfg.n_eigs_final, cfg.zoomout_step, forced
     )
     return FunctionalMapResult(C=C, p2p=p2p)

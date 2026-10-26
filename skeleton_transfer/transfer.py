@@ -22,19 +22,32 @@ Given a rigged :class:`~skeleton_transfer.shapes.SourceShape` and an unrigged
          J_target = R @ V_target[p2p]
 
 Both results are expressed in the coordinate frame of the input target.
+
+Optional robustness steps (see :class:`~skeleton_transfer.config.TransferConfig`):
+
+- **restarts**: if the skeleton is implausible, the functional map is
+  re-estimated from initial maps of different sizes and the most plausible
+  result is kept;
+- **iterative refinement**: the transferred skeleton is used to refine the
+  correspondence (bone affinities as extra features), and the skeleton is
+  transferred again, until the joints stop moving;
+- **skeleton priors**: symmetry / proportion correction of the joints.
+
+Every result carries unsupervised quality scores (:mod:`.diagnostics`).
 """
 
 import logging
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 import numpy as np
 
 from .config import TransferConfig
-from .functional_map import estimate_functional_map
+from .diagnostics import bone_affinity, transfer_diagnostics
+from .functional_map import estimate_functional_map, refine_with_features
 from .regressor import fit_spatial_regressor, locality_mask
 from .shapes import SourceShape, TargetShape
-from .skeleton_priors import apply_skeleton_priors, is_plausible
+from .skeleton_priors import apply_skeleton_priors, bone_lengths, is_plausible
 from .spectral import LaplaceBasis, compute_laplace_basis
 
 logger = logging.getLogger(__name__)
@@ -49,12 +62,16 @@ class TransferResult:
     joints_spectral : (n_joints, 3) joints transferred through the functional map
     joints_pointwise : (n_joints, 3) joints transferred through the p2p map
         (both after the skeleton priors, if enabled)
-    plausible : False if the bone proportions of the spectral transfer reveal
-        a failed correspondence (see ``skeleton_priors.is_plausible``)
     regressor : (n_joints, n_source_vertices) regressor fitted on the source
     mask : (n_joints, n_source_vertices) locality mask used for the regressor
     C : (k, k) functional map, target -> source
     p2p : (n_source_vertices,) target vertex matched to each source vertex
+    plausible : False if the bone proportions of the spectral transfer reveal
+        a failed correspondence (see ``skeleton_priors.is_plausible``)
+    diagnostics : unsupervised quality scores of the final result
+        (see :func:`.diagnostics.transfer_diagnostics`)
+    history : joints and diagnostics after each stage (initial map, restarts,
+        iterations), for analysis
     """
 
     joints_spectral: np.ndarray
@@ -64,6 +81,8 @@ class TransferResult:
     C: np.ndarray
     p2p: np.ndarray
     plausible: bool = True
+    diagnostics: dict = field(default_factory=dict)
+    history: List[dict] = field(default_factory=list)
 
 
 def transfer_skeleton(
@@ -72,6 +91,7 @@ def transfer_skeleton(
     config: Optional[TransferConfig] = None,
     regressor: Optional[np.ndarray] = None,
     basis_src: Optional[LaplaceBasis] = None,
+    basis_tgt: Optional[LaplaceBasis] = None,
 ) -> TransferResult:
     """Transfer the skeleton of ``source`` onto ``target``.
 
@@ -84,15 +104,16 @@ def transfer_skeleton(
         depends on the source, so it can be reused when transferring the same
         template onto many targets.
     basis_src : optional pre-computed source Laplace basis (same reason).
+    basis_tgt : optional pre-computed target Laplace basis (e.g. to compare
+        several configurations on the same target).
     """
     config = config or TransferConfig()
     config.validate()
-    k = config.functional_map.n_eigs_final
+    fm_cfg = config.functional_map
+    k = fm_cfg.n_eigs_final
 
     # 1) Localized regressor on the source
-    mask = locality_mask(
-        source.skinning_weights, source.parents, config.regressor.skinning_weight_threshold
-    )
+    mask = locality_mask(source.skinning_weights, source.parents, config.regressor.skinning_weight_threshold)
     if regressor is None:
         logger.info("Fitting the joint regressor on the source...")
         regressor = fit_spatial_regressor(source.vertices, source.joints, mask, config.regressor)
@@ -103,41 +124,85 @@ def transfer_skeleton(
         basis_src = compute_laplace_basis(
             source.vertices, source.faces, config.spectral.n_eigs, config.source_is_point_cloud or source.faces is None
         )
-    basis_tgt = compute_laplace_basis(
-        target.vertices, target.faces, config.spectral.n_eigs, config.target_is_point_cloud or target.faces is None
-    )
+    if basis_tgt is None:
+        basis_tgt = compute_laplace_basis(
+            target.vertices, target.faces, config.spectral.n_eigs, config.target_is_point_cloud or target.faces is None
+        )
 
-    # 3) Correspondence
-    logger.info("Estimating the functional map...")
-    fmap = estimate_functional_map(
-        basis_src, basis_tgt, source.landmarks, target.landmarks, config.functional_map
-    )
-
-    # 4a) Spectral transfer through C
     regressor_hat = regressor @ basis_src.evecs[:, :k]  # (n_joints, k)
     target_coords_hat = basis_tgt.project(target.vertices, k)  # (k, 3)
-    joints_spectral = regressor_hat @ fmap.C @ target_coords_hat
+    landmarks = (source.landmarks, target.landmarks) if fm_cfg.enforce_landmarks else None
+    history = []
 
-    # 4b) Pointwise transfer through p2p
-    joints_pointwise = regressor @ target.vertices[fmap.p2p]
+    def evaluate(C, p2p, stage):
+        """Joints of both transfers and their diagnostics."""
+        spectral = regressor_hat @ C @ target_coords_hat
+        pointwise = regressor @ target.vertices[p2p]
+        diag = transfer_diagnostics(
+            spectral, pointwise, C, p2p, source.vertices, target.vertices, source.joints, source.parents
+        )
+        history.append({"stage": stage, "joints_spectral": spectral, "joints_pointwise": pointwise, **diag})
+        return spectral, pointwise, diag
+
+    # 3) Correspondence, with restarts if the skeleton is implausible
+    logger.info("Estimating the functional map...")
+    fmap = estimate_functional_map(basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg)
+    C, p2p = fmap.C, fmap.p2p
+    spectral, pointwise, diag = evaluate(C, p2p, f"init k={fm_cfg.n_eigs_init}")
+    if not is_plausible(spectral, source.parents, source.joints):
+        for size in fm_cfg.restart_init_sizes:
+            logger.info("Implausible skeleton, restarting from an initial map of size %d...", size)
+            alt = estimate_functional_map(
+                basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg, n_eigs_init=size
+            )
+            alt_eval = evaluate(alt.C, alt.p2p, f"restart k={size}")
+            if alt_eval[2]["bone_ratio"] < diag["bone_ratio"]:
+                C, p2p, (spectral, pointwise, diag) = alt.C, alt.p2p, alt_eval
+            if is_plausible(spectral, source.parents, source.joints):
+                break
+
+    # 4) Iterative refinement: skeleton -> correspondence -> skeleton ...
+    it_cfg = config.iterative
+    if it_cfg is not None:
+        affinity_src = bone_affinity(source.vertices, source.joints, source.parents, it_cfg.temperature)
+        # Scale the affinities to the typical norm of the spectral embedding.
+        embedding_norm = np.median(np.linalg.norm(basis_src.evecs[:, :k], axis=1))
+        scale = it_cfg.feature_weight * embedding_norm / np.median(np.linalg.norm(affinity_src, axis=1))
+        for it in range(it_cfg.n_iterations):
+            skeleton = spectral
+            if config.skeleton_priors is not None:
+                skeleton = apply_skeleton_priors(spectral, source.parents, source.joints, config.skeleton_priors)
+            affinity_tgt = bone_affinity(target.vertices, skeleton, source.parents, it_cfg.temperature)
+            C, p2p = refine_with_features(
+                p2p, basis_src.evecs, basis_tgt.evecs, k, it_cfg.n_refine_steps,
+                (scale * affinity_src, scale * affinity_tgt), landmarks,
+            )  # fmt: skip
+            previous = spectral
+            spectral, pointwise, diag = evaluate(C, p2p, f"iteration {it + 1}")
+            step = np.linalg.norm(spectral - previous, axis=1).max() / bone_lengths(spectral, source.parents).mean()
+            history[-1]["joint_step"] = float(step)
+            if step < it_cfg.tolerance:
+                break
 
     # 5) Sanity check and optional skeleton priors
-    plausible = is_plausible(joints_spectral, source.parents, source.joints)
+    plausible = is_plausible(spectral, source.parents, source.joints)
     if not plausible:
         logger.warning(
             "Implausible bone proportions in the transferred skeleton: the correspondence "
             "probably failed (check the landmarks and the target connectivity)."
         )
     if config.skeleton_priors is not None:
-        joints_spectral = apply_skeleton_priors(joints_spectral, source.parents, source.joints, config.skeleton_priors)
-        joints_pointwise = apply_skeleton_priors(joints_pointwise, source.parents, source.joints, config.skeleton_priors)
+        spectral = apply_skeleton_priors(spectral, source.parents, source.joints, config.skeleton_priors)
+        pointwise = apply_skeleton_priors(pointwise, source.parents, source.joints, config.skeleton_priors)
 
     return TransferResult(
-        joints_spectral=joints_spectral,
-        joints_pointwise=joints_pointwise,
+        joints_spectral=spectral,
+        joints_pointwise=pointwise,
         regressor=regressor,
         mask=mask,
-        C=fmap.C,
-        p2p=fmap.p2p,
+        C=C,
+        p2p=p2p,
         plausible=plausible,
+        diagnostics=diag,
+        history=history,
     )

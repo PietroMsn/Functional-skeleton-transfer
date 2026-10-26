@@ -39,13 +39,14 @@ Package layout
 - :mod:`~skeleton_transfer.visualization`   PyVista plotting (optional)
 """
 
-from .config import FunctionalMapConfig, RegressorConfig, SpectralConfig, TransferConfig
+from .config import FunctionalMapConfig, IterativeConfig, RegressorConfig, SpectralConfig, TransferConfig
 from .skeleton_priors import SkeletonPriorConfig, apply_skeleton_priors
 from .shapes import SourceShape, TargetShape, load_mesh, load_smpl_source, load_target, load_target_mat
 from .transfer import TransferResult, transfer_skeleton
 
 __all__ = [
     "FunctionalMapConfig",
+    "IterativeConfig",
     "RegressorConfig",
     "SpectralConfig",
     "TransferConfig",

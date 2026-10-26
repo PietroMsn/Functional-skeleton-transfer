@@ -12,6 +12,7 @@ Musoni, P. and Marin, R. and Melzi, S. and Castellani, U., A Functional Skeleton
 * [Code structure](#code-structure)
 * [Using it from Python](#using-it-from-python)
 * [Skeleton priors and synthetic benchmark](#skeleton-priors-and-synthetic-benchmark)
+* [Evaluation on real scans](#evaluation-on-real-scans)
 * [Differences from the original code](#differences-from-the-original-code)
 * [Requirements and tests](#requirements-and-tests)
 * [License](#license)
@@ -133,6 +134,29 @@ The priors give a consistent but small gain (~5%). With loose clothing the
 error is dominated by failures of the correspondence (whole joints mapped onto
 the wrong limb), which the plausibility check detects but no skeleton prior can
 repair.
+
+## Evaluation on real scans
+
+Datasets of clothed people such as CAPE and 4D-DRESS provide, for every frame,
+a scan and the SMPL body registered under the clothes, which gives the
+ground-truth skeleton. The evaluation works in two steps:
+
+1. a dataset adapter (`tools/datasets/`) exports each frame to a common `.npz`
+   sample (`skeleton_transfer/scans.py`: scan vertices and faces, registered SMPL
+   vertices, gender, category, optional semantic labels and ground-truth joints);
+2. `tools/evaluate_scans.py` samples each scan uniformly (8000 points by
+   default, so that the target shares no connectivity with SMPL), drops points
+   far from the body, places the landmarks on the scan points nearest to the SMPL
+   landmark vertices of the registration, and compares the pipeline variants:
+
+```bash
+python tools/evaluate_scans.py samples/ --source data/basicmodel_m_lbs.mat     --smpl-male SMPL_MALE.pkl --smpl-female SMPL_FEMALE.pkl --out scans.pkl
+```
+
+The official SMPL `.pkl` files can be read directly (`SMPLModel.from_file`),
+without installing chumpy. When a sample does not store its joints, the
+ground truth is the gender-specific SMPL joint regressor applied to the
+registered body.
 
 ## Differences from the original code
 

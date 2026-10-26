@@ -14,7 +14,7 @@ Example
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple
 
 from .skeleton_priors import SkeletonPriorConfig
 
@@ -61,6 +61,12 @@ class FunctionalMapConfig:
     # --- refinement ---------------------------------------------------------
     #: Number of ICP iterations (orthogonal refinement of the initial map).
     n_icp_iterations: int = 5
+    #: Force the landmarks to correspond in every point-to-point step.
+    enforce_landmarks: bool = False
+    #: If the transferred skeleton is implausible, retry with these sizes of
+    #: the initial map and keep the most plausible result (empty = no retry).
+    #: ``n_eigs_final - size`` must be a multiple of ``zoomout_step``.
+    restart_init_sizes: Tuple[int, ...] = ()
 
 
 @dataclass
@@ -81,6 +87,29 @@ class RegressorConfig:
 
 
 @dataclass
+class IterativeConfig:
+    """Alternate skeleton estimation and correspondence refinement.
+
+    At each iteration the current target skeleton defines, for every target
+    point, its affinity to each bone (softmax of the negative distances to the
+    bone segments); the same is computed on the source with its skeleton.
+    These affinities are appended to the spectral embeddings in the
+    point-to-point searches, so that the correspondence respects the skeleton.
+    """
+
+    #: Maximum number of skeleton -> correspondence iterations.
+    n_iterations: int = 8
+    #: Weight of the bone affinities relative to the spectral embedding.
+    feature_weight: float = 1.0
+    #: Softmax temperature of the affinities, relative to the mean bone length.
+    temperature: float = 0.25
+    #: Refinement steps (p2p <-> functional map) per iteration.
+    n_refine_steps: int = 3
+    #: Stop when no joint moves more than this fraction of the mean bone length.
+    tolerance: float = 0.01
+
+
+@dataclass
 class TransferConfig:
     """Top-level configuration grouping all pipeline stages."""
 
@@ -95,6 +124,8 @@ class TransferConfig:
     #: Symmetry / proportion priors applied to the transferred joints
     #: (None = off). See :mod:`skeleton_transfer.skeleton_priors`.
     skeleton_priors: Optional[SkeletonPriorConfig] = None
+    #: Iterative skeleton <-> correspondence refinement (None = off).
+    iterative: Optional[IterativeConfig] = None
 
     def validate(self) -> None:
         """Raise ``ValueError`` if the parameters are inconsistent."""
@@ -106,6 +137,9 @@ class TransferConfig:
             )
         if fm.n_eigs_init > fm.n_eigs_final:
             raise ValueError("functional_map.n_eigs_init must be <= n_eigs_final.")
+        for size in fm.restart_init_sizes:
+            if size > fm.n_eigs_final or (fm.n_eigs_final - size) % fm.zoomout_step != 0:
+                raise ValueError(f"Invalid restart size {size}: see FunctionalMapConfig.restart_init_sizes.")
         if (fm.n_eigs_final - fm.n_eigs_init) % fm.zoomout_step != 0:
             raise ValueError(
                 "n_eigs_final - n_eigs_init must be a multiple of zoomout_step, "

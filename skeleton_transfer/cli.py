@@ -29,7 +29,8 @@ import logging
 
 import numpy as np
 
-from . import SkeletonPriorConfig, TransferConfig, load_smpl_source, load_target, transfer_skeleton
+from . import IterativeConfig, SkeletonPriorConfig, TransferConfig, load_smpl_source, load_target, transfer_skeleton
+from .shapes import load_landmarks
 
 
 def parse_args(argv=None):
@@ -41,12 +42,23 @@ def parse_args(argv=None):
         help="text file with the target landmark vertex indices, same order as the source ones "
         "(required for mesh files, overrides the ones stored in a .mat file)",
     )
+    parser.add_argument(
+        "--source-landmarks",
+        help="text file with the source landmark indices (default: the 7 SMPL landmarks of the paper; "
+        "see SMPL_EXTRA_LANDMARKS for knees and elbows)",
+    )
     parser.add_argument("--one-based-landmarks", action="store_true", help="landmark indices start from 1")
     parser.add_argument(
         "--target-point-cloud", action="store_true", help="treat the target as a point cloud (ignore faces)"
     )
     parser.add_argument(
         "--priors", action="store_true", help="apply left/right symmetry and proportion priors to the joints"
+    )
+    parser.add_argument(
+        "--iterative", action="store_true", help="refine the correspondence with the transferred skeleton"
+    )
+    parser.add_argument(
+        "--restarts", action="store_true", help="retry with other initial maps if the skeleton is implausible"
     )
     parser.add_argument("--output", help="save joints, maps and regressor to this .npz file")
     parser.add_argument("--no-plot", action="store_true", help="do not open the 3D viewer")
@@ -99,12 +111,17 @@ def main(argv=None):
     config = TransferConfig(
         target_is_point_cloud=args.target_point_cloud,
         skeleton_priors=SkeletonPriorConfig() if args.priors else None,
+        iterative=IterativeConfig() if args.iterative else None,
     )
+    if args.restarts:
+        config.functional_map.restart_init_sizes = (10, 30, 40)
     # Every parameter can be changed here, e.g.:
     # config.functional_map.n_eigs_final = 80
     # config.regressor.skinning_weight_threshold = 0.2
 
     source = load_smpl_source(args.source)
+    if args.source_landmarks:
+        source.landmarks = load_landmarks(args.source_landmarks, args.one_based_landmarks)
     target = _load_target(args)
 
     result = transfer_skeleton(source, target, config)
@@ -120,6 +137,7 @@ def main(argv=None):
             regressor=result.regressor,
         )
         logging.info("Results saved to %s", args.output)
+    logging.info("Diagnostics: %s", ", ".join(f"{k}={v:.3g}" for k, v in result.diagnostics.items()))
 
     if not args.no_plot or args.screenshot:
         from .visualization import plot_transfer

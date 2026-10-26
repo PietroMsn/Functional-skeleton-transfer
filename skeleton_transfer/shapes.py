@@ -27,6 +27,11 @@ import scipy.io as sio
 #: They must be given in the same order as the landmarks of the target.
 SMPL_LANDMARKS = np.array([3509, 3076, 414, 5909, 6683, 3216, 2444]) - 1
 
+#: Optional extra SMPL landmarks (0-based): front of the left / right knee and
+#: tip of the left / right elbow. Append them to ``SMPL_LANDMARKS`` and mark
+#: the same points on the target to constrain the limbs better.
+SMPL_EXTRA_LANDMARKS = np.array([1043, 4529, 1643, 5112])
+
 
 @dataclass
 class SourceShape:
