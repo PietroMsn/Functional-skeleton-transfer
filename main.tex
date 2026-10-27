@@ -215,7 +215,10 @@ of size $k=20$; a different initial size changes the basin reached by ICP and
 ZoomOut. When the transferred skeleton is implausible
 (Sec.~\ref{sec:plausibility}) we re-estimate the map from initial sizes
 $k \in \{10, 30, 40\}$ and keep the result with the smallest
-$\max_b |\log \rho_b|$, stopping as soon as one is plausible.
+$\max_b |\log \rho_b|$, stopping as soon as one is plausible. Alternatively,
+every candidate (the initial map and the three restarts) is refined with the
+skeleton-guided refinement below, and the one with the highest final segment
+consistency is kept (\emph{refined restarts}, Sec.~\ref{sec:exp_real}).
 
 \paragraph{Skeleton-guided refinement.} The transferred skeleton carries
 extrinsic, pose-aware information that intrinsic descriptors lack: which
@@ -545,8 +548,24 @@ refinement, with at most two false alarms out of 25. With the stopping rule
 the refinement uses 4.6 iterations on average. The remaining failure (134.8\,mm
 on a scan with a long coat) is caused by the restarts: the initial map gives
 64.6\,mm but is judged implausible, and the restart with the smallest
-bone-ratio deviation is a worse map. Selecting the restart with the segment
-consistency, the better failure detector, is a natural improvement.
+bone-ratio deviation is a worse map.
+
+\paragraph{Selecting the restart.} Choosing the restart with the segment
+consistency instead, before the refinement, does not help consistently: on the
+targets where the restarts are triggered it reduces the error before the
+refinement on 4D-DRESS (from 99.2 to 73.0\,mm) but increases it on the
+synthetic benchmark (from 95.5 to 101.4\,mm, four failures instead of two),
+and no other diagnostic or combination does better than the bone ratios on
+both. Before the refinement a collapsed map and the skeleton it induces can be
+mutually consistent. After the refinement the diagnostics are reliable
+(Tab.~\ref{tab:diagnostics}), so we refine every candidate and keep the one
+with the highest final segment consistency. On the 13 targets where the
+restarts are triggered (9 synthetic, 4 real), this reduces the final error of
+the complete pipeline from 73.7 to 70.3\,mm on the synthetic targets and from
+87.5 to 66.1\,mm on the real ones, with the same number of failures (2/9 and
+1/4); an oracle choosing the best candidate would reach 60.1 and 41.8\,mm. The
+cost is one refinement per candidate, i.e.\ about four times the time of the
+complete pipeline on these targets only.
 
 \paragraph{Limitations.} The real-data evaluation covers only two subjects and
 one frame per sequence; it must be extended to more subjects and frames of

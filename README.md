@@ -22,6 +22,7 @@ latexmk -pdf main.tex
 | 2026-10-26 | `77fccbb` (feature/target-skeleton-priors) | point-cloud connectivity, skeleton priors, plausibility check, synthetic benchmark with clothing |
 | 2026-10-26 | `20fc426` (feature/target-skeleton-priors) | neutral SMPL source; robust correspondence (limb landmarks, restarts, skeleton-guided refinement), unsupervised diagnostics, convergence and stopping criterion |
 | 2026-10-27 | after `27c1ce8` (feature/target-skeleton-priors, stopping rule not yet committed) | stopping rule in the method; real scans: 4D-DRESS, one frame per sequence (Tab. 5) |
+| 2026-10-27 | after `2daabbb` (not yet committed) | restart selection after the refinement (segment consistency), evaluated on the 13 targets where the restarts trigger |
 
 ## Reproducing the numbers
 
