@@ -60,7 +60,19 @@ def default_variants() -> List[Variant]:
         ("all", True, replace(base, functional_map=both, iterative=IterativeConfig())),
         ("all + priors", True, replace(base, functional_map=both, iterative=IterativeConfig(),
                                        skeleton_priors=SkeletonPriorConfig())),
+        ("all + priors, refined restarts", True,
+         replace(base, functional_map=replace(both, restart_selection="refined"), iterative=IterativeConfig(),
+                 skeleton_priors=SkeletonPriorConfig())),
     ]  # fmt: skip
+
+
+def completed_targets(runs: List[dict], variants: List[Variant]) -> set:
+    """(condition, target) pairs for which every variant has been run."""
+    done = {}
+    for r in runs:
+        done.setdefault((r["condition"], r["target"]), set()).add(r["variant"])
+    names = {name for name, _, _ in variants}
+    return {key for key, have in done.items() if names <= have}
 
 
 class Evaluator:
@@ -85,12 +97,20 @@ class Evaluator:
     def evaluate(self, target: TargetShape, gt: np.ndarray, condition: str, name) -> str:
         """Run all variants on ``target``, whose landmarks are :data:`ALL_LANDMARKS`.
 
+        Variants already in :attr:`runs` for this target are not run again
+        (e.g. when a variant is added to a saved evaluation).
+
         Returns a one-line summary of the errors (mm), one per variant.
         """
         n_base = len(self.source.landmarks)
-        basis_tgt = compute_laplace_basis(target.vertices, target.faces, self.config.spectral.n_eigs, target.faces is None)
+        saved = {r["variant"]: r for r in self.runs if r["condition"] == condition and r["target"] == name}
+        if len(saved) < len(self.variants):
+            basis_tgt = compute_laplace_basis(target.vertices, target.faces, self.config.spectral.n_eigs, target.faces is None)
         line = f"{condition:14s} {str(name):>24s}"
         for variant, extra, cfg in self.variants:
+            if variant in saved:
+                line += f" | {1000 * saved[variant]['error']:6.1f}"
+                continue
             t = time.time()
             src = self.source_extra if extra else self.source
             tgt = target if extra else replace(target, landmarks=target.landmarks[:n_base])

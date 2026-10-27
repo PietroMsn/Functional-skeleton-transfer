@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sparse
 
-from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, default_variants
+from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, completed_targets, default_variants
 from skeleton_transfer.scans import ScanSample, load_sample, make_target, sample_surface, save_sample, transfer_landmarks
 from skeleton_transfer.smpl import SMPLModel
 from skeleton_transfer.synthetic import add_shirt
@@ -128,3 +128,9 @@ def test_evaluator_on_scan(dressed_sample):
     evaluator.evaluate(target, gt, "shirt", sample.name)
     (run,) = evaluator.runs
     assert run["variant"] == "baseline" and run["error"] < 0.1 and run["history"][0]["error"] == run["error"]
+    # a variant added later is the only one run again on the same target
+    evaluator.variants = default_variants()[:2]
+    assert completed_targets(evaluator.runs, evaluator.variants) == set()
+    evaluator.evaluate(target, gt, "shirt", sample.name)
+    assert [r["variant"] for r in evaluator.runs] == ["baseline", "+ knee/elbow landmarks"]
+    assert completed_targets(evaluator.runs, evaluator.variants) == {("shirt", sample.name)}

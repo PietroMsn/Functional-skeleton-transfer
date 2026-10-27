@@ -21,7 +21,7 @@ import pickle
 
 import numpy as np
 
-from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, report
+from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, completed_targets, report
 from skeleton_transfer.smpl import SMPLModel
 from skeleton_transfer.synthetic import make_synthetic_target
 
@@ -35,7 +35,7 @@ def run(args):
         with open(args.out, "rb") as f:
             evaluator.runs = pickle.load(f)
         print(f"Resuming from {args.out}: {len(evaluator.runs)} runs already done")
-    done = {(r["condition"], r["target"]) for r in evaluator.runs}
+    done = completed_targets(evaluator.runs, evaluator.variants)
     for condition in args.conditions:
         rng = np.random.default_rng(args.seed)  # same bodies for every condition
         for i in range(args.n):
@@ -66,7 +66,7 @@ def main():
     parser.add_argument("--noise", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="benchmark_synthetic.pkl")
-    parser.add_argument("--resume", action="store_true", help="skip the bodies already saved in --out")
+    parser.add_argument("--resume", action="store_true", help="skip the runs already saved in --out (only missing variants are run)")
     parser.add_argument("--report", metavar="PKL", help="only report saved results")
     args = parser.parse_args()
     logging.basicConfig(level=logging.ERROR)

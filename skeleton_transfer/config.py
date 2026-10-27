@@ -67,6 +67,13 @@ class FunctionalMapConfig:
     #: the initial map and keep the most plausible result (empty = no retry).
     #: ``n_eigs_final - size`` must be a multiple of ``zoomout_step``.
     restart_init_sizes: Tuple[int, ...] = ()
+    #: How the restart is chosen. ``"bone_ratio"``: try the sizes in order,
+    #: keep the map with the most plausible bone proportions and stop at the
+    #: first plausible one. ``"refined"`` (needs ``TransferConfig.iterative``):
+    #: refine the initial map and every restart with the iterative loop and
+    #: keep the one with the highest final segment consistency; more accurate,
+    #: but runs the refinement once per candidate.
+    restart_selection: str = "bone_ratio"
 
 
 @dataclass
@@ -149,6 +156,10 @@ class TransferConfig:
             )
         if fm.n_eigs_init > fm.n_eigs_final:
             raise ValueError("functional_map.n_eigs_init must be <= n_eigs_final.")
+        if fm.restart_selection not in ("bone_ratio", "refined"):
+            raise ValueError(f"Unknown restart_selection {fm.restart_selection!r}.")
+        if fm.restart_selection == "refined" and self.iterative is None:
+            raise ValueError('restart_selection="refined" needs the iterative refinement.')
         for size in fm.restart_init_sizes:
             if size > fm.n_eigs_final or (fm.n_eigs_final - size) % fm.zoomout_step != 0:
                 raise ValueError(f"Invalid restart size {size}: see FunctionalMapConfig.restart_init_sizes.")

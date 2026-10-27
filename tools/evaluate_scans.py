@@ -27,7 +27,7 @@ import zlib
 
 import numpy as np
 
-from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, report
+from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, completed_targets, report
 from skeleton_transfer.scans import load_sample, make_target
 from skeleton_transfer.smpl import SMPLModel, find_smpl_models
 
@@ -45,7 +45,7 @@ def main():
     parser.add_argument("--group-by", choices=["category", "gender"], default="category")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="evaluate_scans.pkl")
-    parser.add_argument("--resume", action="store_true", help="skip the samples already saved in --out")
+    parser.add_argument("--resume", action="store_true", help="skip the runs already saved in --out (only missing variants are run)")
     parser.add_argument("--report", metavar="PKL", help="only report saved results")
     args = parser.parse_args()
     logging.basicConfig(level=logging.ERROR)
@@ -71,7 +71,7 @@ def main():
         with open(args.out, "rb") as f:
             evaluator.runs = pickle.load(f)
         print(f"Resuming from {args.out}: {len(evaluator.runs)} runs already done")
-    done = {r["target"] for r in evaluator.runs}
+    done = {name for _, name in completed_targets(evaluator.runs, evaluator.variants)}
     for path in files:
         sample = load_sample(path)
         if sample.name in done:

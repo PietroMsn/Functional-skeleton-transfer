@@ -27,7 +27,10 @@ Files read for every chosen frame of a take (``Take*/``):
   (skin 0, hair 1, shoe 2, upper 3, lower 4, outer 5), stored with the sample.
 
 The category of a sample is its outfit (``Inner`` / ``Outer``); the fraction of
-scan vertices of each label is stored in the metadata.
+scan vertices of each label is stored in the metadata, together with the
+source (archive or folder name), subject, outfit, take and frame. After every
+run the provenance of all the samples of ``--out`` is written to
+``manifest.csv`` (see ``manifest.py``).
 """
 
 import argparse
@@ -47,6 +50,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from skeleton_transfer.scans import ScanSample, save_sample  # noqa: E402
 from skeleton_transfer.smpl import SMPLModel, find_smpl_models  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from manifest import write_manifest  # noqa: E402
 
 SURFACE_LABELS = ["skin", "hair", "shoe", "upper", "lower", "outer"]
 
@@ -66,6 +71,7 @@ class Take:
     subject: str
     outfit: str
     take: str
+    source: str = ""
     info: Optional[dict] = None
     chosen: list = field(default_factory=list)  # frame numbers, in order of discovery
     frames: Dict[int, dict] = field(default_factory=dict)  # frame -> {"mesh": ..., "smpl": ..., "labels": ...}
@@ -83,6 +89,7 @@ class Exporter:
         self.models, self.out = models, out
         self.stride, self.frames_per_take, self.require_labels = stride, frames_per_take, require_labels
         self.takes: Dict[str, Take] = {}
+        self.source = ""  # name of the archive / folder being read, stored with each sample
         self.n_saved = 0
         os.makedirs(out, exist_ok=True)
 
@@ -98,7 +105,7 @@ class Exporter:
     def take(self, subject: str, outfit: str, name: str) -> Take:
         key = f"{subject}_{outfit}_{name}"
         if key not in self.takes:
-            self.takes[key] = Take(subject, outfit, name)
+            self.takes[key] = Take(subject, outfit, name, self.source)
         return self.takes[key]
 
     def needs(self, subject: str, rel_path: str, outfit: str, take_name: str) -> bool:
@@ -143,7 +150,7 @@ class Exporter:
         body, joints = model.forward(np.ravel(p["betas"]), pose, transl=np.ravel(p["transl"]))
 
         labels = None
-        metadata = {"subject": take.subject, "outfit": take.outfit, "take": take.take, "frame": frame,
+        metadata = {"source": take.source, "subject": take.subject, "outfit": take.outfit, "take": take.take, "frame": frame,
                     "rotation": np.asarray(take.info.get("rotation")), "smpl_params": {k: np.asarray(v) for k, v in p.items()}}  # fmt: skip
         if "labels" in parts:
             labels = np.asarray(parts["labels"]["scan_labels"]).astype(np.int8)
@@ -182,6 +189,7 @@ def subject_of(path: str) -> str:
 def read_archive(path: str, exporter: Exporter) -> None:
     """Stream a .tar.gz, reading only the members the exporter needs."""
     subject = subject_of(path)
+    exporter.source = os.path.basename(path)
     size = os.path.getsize(path)
     t0 = time.time()
     with open(path, "rb") as raw, tarfile.open(fileobj=raw, mode="r|gz") as tar:
@@ -201,6 +209,7 @@ def read_archive(path: str, exporter: Exporter) -> None:
 def read_folder(path: str, exporter: Exporter) -> None:
     """Read the chosen frames of an extracted ``<subject>_<outfit>`` folder."""
     subject = subject_of(path)
+    exporter.source = os.path.basename(os.path.normpath(path))
     for root, _, files in os.walk(path):
         rel_root = root.replace("\\", "/")
         if not re.search(r"/(Inner|Outer)/Take\d+$", rel_root):
@@ -245,7 +254,7 @@ def main():
         else:
             print(f"  skipped: not a folder or .tar.gz archive")
     exporter.finish()
-    print(f"{exporter.n_saved} samples saved to {args.out}")
+    print(f"{exporter.n_saved} samples saved to {args.out}, provenance in {write_manifest(args.out)}")
 
 
 if __name__ == "__main__":

@@ -69,3 +69,10 @@ def test_restart_sizes_validated():
     cfg = TransferConfig(functional_map=FunctionalMapConfig(restart_init_sizes=(15,)))
     with pytest.raises(ValueError):
         cfg.validate()
+
+
+def test_restart_selection_validated():
+    with pytest.raises(ValueError):
+        TransferConfig(functional_map=FunctionalMapConfig(restart_selection="other")).validate()
+    with pytest.raises(ValueError):  # "refined" needs the iterative refinement
+        TransferConfig(functional_map=FunctionalMapConfig(restart_selection="refined")).validate()

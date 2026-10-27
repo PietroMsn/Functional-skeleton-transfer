@@ -18,9 +18,9 @@ SMPL = os.path.join(DATA_DIR, "basicmodel_m_lbs.mat")
 pytestmark = pytest.mark.skipif(not os.path.exists(SMPL), reason="SMPL model not available")
 
 
-def _load_exporter_module():
-    path = os.path.join(REPO_ROOT, "tools", "datasets", "dress4d.py")
-    spec = importlib.util.spec_from_file_location("dress4d", path)
+def _load_exporter_module(name="dress4d"):
+    path = os.path.join(REPO_ROOT, "tools", "datasets", f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -63,7 +63,29 @@ def test_export_from_archive(tmp_path):
     sample = load_sample(str(out / files[1]))
     assert sample.category == "Outer" and sample.gender == "female"
     assert sample.metadata["label_fractions"]["outer"] == 1.0
+    assert sample.metadata["source"] == "00123_Outer.tar.gz" and sample.metadata["take"] == "Take1"
     p = params[3]
     _, joints = model.forward(p["betas"], np.concatenate((p["global_orient"], p["body_pose"])).reshape(24, 3), transl=p["transl"])
     np.testing.assert_allclose(sample.joints, joints, atol=1e-5)
     np.testing.assert_allclose(sample.smpl_vertices, sample.scan_vertices, atol=1e-5)
+
+
+def test_manifest_records_provenance(tmp_path):
+    test_export_from_archive(tmp_path)
+    manifest = _load_exporter_module("manifest")
+    rows = manifest.manifest_rows(str(tmp_path / "samples"))
+    assert [(r["source"], r["subject"], r["outfit"], r["take"], r["frame"]) for r in rows] == [
+        ("00123_Outer.tar.gz", "00123", "Outer", "Take1", 1),
+        ("00123_Outer.tar.gz", "00123", "Outer", "Take1", 3),
+    ]
+
+
+def test_select_frames_one_per_sequence_with_varied_poses():
+    select = _load_exporter_module("select_frames").select_frames
+    poses = {f: np.full(3, float(f)) for f in range(5)}
+    samples = {("s", "Inner", "Take1"): [(f, poses[f]) for f in range(5)],
+               ("s", "Inner", "Take2"): [(f + 10, poses[f]) for f in range(5)]}  # fmt: skip
+    # with nothing selected, the first sequence gives its middle frame, the next one the farthest pose
+    assert select(samples, []) == [2, 10]
+    # kept sequences are skipped, and their poses count as selected
+    assert select(samples, [(("s", "Inner", "Take1"), "kept", poses[0])]) == [14]

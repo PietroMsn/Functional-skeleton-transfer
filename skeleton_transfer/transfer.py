@@ -27,7 +27,8 @@ Optional robustness steps (see :class:`~skeleton_transfer.config.TransferConfig`
 
 - **restarts**: if the skeleton is implausible, the functional map is
   re-estimated from initial maps of different sizes and the most plausible
-  result is kept;
+  result is kept (or, with ``restart_selection="refined"``, every candidate
+  is refined and the one with the best segment consistency is kept);
 - **iterative refinement**: the transferred skeleton is used to refine the
   correspondence (bone affinities as extra features), and the skeleton is
   transferred again, until the joints stop moving;
@@ -144,30 +145,15 @@ def transfer_skeleton(
         history.append({"stage": stage, "joints_spectral": spectral, "joints_pointwise": pointwise, **diag})
         return spectral, pointwise, diag
 
-    # 3) Correspondence, with restarts if the skeleton is implausible
-    logger.info("Estimating the functional map...")
-    fmap = estimate_functional_map(basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg)
-    C, p2p = fmap.C, fmap.p2p
-    spectral, pointwise, diag = evaluate(C, p2p, f"init k={fm_cfg.n_eigs_init}")
-    if not is_plausible(spectral, source.parents, source.joints):
-        for size in fm_cfg.restart_init_sizes:
-            logger.info("Implausible skeleton, restarting from an initial map of size %d...", size)
-            alt = estimate_functional_map(
-                basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg, n_eigs_init=size
-            )
-            alt_eval = evaluate(alt.C, alt.p2p, f"restart k={size}")
-            if alt_eval[2]["bone_ratio"] < diag["bone_ratio"]:
-                C, p2p, (spectral, pointwise, diag) = alt.C, alt.p2p, alt_eval
-            if is_plausible(spectral, source.parents, source.joints):
-                break
-
-    # 4) Iterative refinement: skeleton -> correspondence -> skeleton ...
     it_cfg = config.iterative
     if it_cfg is not None:
         affinity_src = bone_affinity(source.vertices, source.joints, source.parents, it_cfg.temperature)
         # Scale the affinities to the typical norm of the spectral embedding.
         embedding_norm = np.median(np.linalg.norm(basis_src.evecs[:, :k], axis=1))
         scale = it_cfg.feature_weight * embedding_norm / np.median(np.linalg.norm(affinity_src, axis=1))
+
+    def refine(C, p2p, spectral, pointwise, diag, label=""):
+        """Iterative refinement: skeleton -> correspondence -> skeleton ..."""
         best_consistency, stalled = diag["segment_consistency"], 0
         for it in range(it_cfg.n_iterations):
             skeleton = spectral
@@ -179,7 +165,7 @@ def transfer_skeleton(
                 (scale * affinity_src, scale * affinity_tgt), landmarks,
             )  # fmt: skip
             previous = spectral
-            spectral, pointwise, diag = evaluate(C, p2p, f"iteration {it + 1}")
+            spectral, pointwise, diag = evaluate(C, p2p, f"iteration {it + 1}{label}")
             step = np.linalg.norm(spectral - previous, axis=1).max() / bone_lengths(spectral, source.parents).mean()
             history[-1]["joint_step"] = float(step)
             if diag["segment_consistency"] > best_consistency + it_cfg.stop_min_gain:
@@ -188,6 +174,41 @@ def transfer_skeleton(
                 stalled += 1
             if step < it_cfg.tolerance or (it_cfg.stop_patience and stalled >= it_cfg.stop_patience):
                 break
+        return C, p2p, spectral, pointwise, diag
+
+    # 3) Correspondence, with restarts if the skeleton is implausible
+    logger.info("Estimating the functional map...")
+    fmap = estimate_functional_map(basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg)
+    C, p2p = fmap.C, fmap.p2p
+    spectral, pointwise, diag = evaluate(C, p2p, f"init k={fm_cfg.n_eigs_init}")
+    refined = False
+    if not is_plausible(spectral, source.parents, source.joints) and fm_cfg.restart_init_sizes:
+        if fm_cfg.restart_selection == "refined":
+            # 3-4) Refine every candidate, keep the best final segment consistency.
+            logger.info("Implausible skeleton, refining the initial map and %d restarts...", len(fm_cfg.restart_init_sizes))
+            candidates = [refine(C, p2p, spectral, pointwise, diag, f" (k={fm_cfg.n_eigs_init})")]
+            for size in fm_cfg.restart_init_sizes:
+                alt = estimate_functional_map(
+                    basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg, n_eigs_init=size
+                )
+                candidates.append(refine(alt.C, alt.p2p, *evaluate(alt.C, alt.p2p, f"restart k={size}"), f" (k={size})"))
+            C, p2p, spectral, pointwise, diag = max(candidates, key=lambda c: c[4]["segment_consistency"])
+            refined = True
+        else:
+            for size in fm_cfg.restart_init_sizes:
+                logger.info("Implausible skeleton, restarting from an initial map of size %d...", size)
+                alt = estimate_functional_map(
+                    basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg, n_eigs_init=size
+                )
+                alt_eval = evaluate(alt.C, alt.p2p, f"restart k={size}")
+                if alt_eval[2]["bone_ratio"] < diag["bone_ratio"]:
+                    C, p2p, (spectral, pointwise, diag) = alt.C, alt.p2p, alt_eval
+                if is_plausible(spectral, source.parents, source.joints):
+                    break
+
+    # 4) Iterative refinement of the chosen map
+    if it_cfg is not None and not refined:
+        C, p2p, spectral, pointwise, diag = refine(C, p2p, spectral, pointwise, diag)
 
     # 5) Sanity check and optional skeleton priors
     plausible = is_plausible(spectral, source.parents, source.joints)

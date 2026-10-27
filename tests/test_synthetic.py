@@ -76,3 +76,28 @@ def test_iterations_stop_on_segment_consistency(model):
             break
     assert len(iterations) == expected <= cfg.n_iterations
     assert result.diagnostics == {k: v for k, v in result.history[-1].items() if k in result.diagnostics}
+
+
+def test_refined_restarts_keep_best_segment_consistency(model, monkeypatch):
+    """With restart_selection="refined" every candidate is refined, and the
+    one with the highest final segment consistency is returned."""
+    from dataclasses import replace
+
+    from skeleton_transfer import IterativeConfig, TransferConfig, transfer_skeleton
+    from skeleton_transfer import transfer as transfer_module
+
+    monkeypatch.setattr(transfer_module, "is_plausible", lambda *args: False)  # always restart
+    target, _ = make_synthetic_target(model, np.random.default_rng(2), n_points=3000)
+    cfg = TransferConfig(iterative=IterativeConfig(n_iterations=2))
+    cfg = replace(cfg, functional_map=replace(cfg.functional_map, restart_init_sizes=(30,), restart_selection="refined"))
+    result = transfer_skeleton(model.as_source(), target, cfg)
+
+    stages = [h["stage"] for h in result.history]
+    assert stages[0] == "init k=20" and "restart k=30" in stages
+    finals = {}
+    for h in result.history:  # last iteration of each candidate
+        if h["stage"].startswith("iteration"):
+            finals[h["stage"].split("(")[1]] = h
+    assert set(finals) == {"k=20)", "k=30)"}
+    best = max(finals.values(), key=lambda h: h["segment_consistency"])
+    np.testing.assert_allclose(result.joints_spectral, best["joints_spectral"])
