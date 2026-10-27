@@ -237,7 +237,9 @@ $k=120$,
 with $w$ chosen so that the affinities have the median norm of the spectral
 embedding; the functional map is then re-fitted to $T$, and the skeleton is
 transferred again with Eq.~\eqref{eq:transfer}. Each iteration runs three
-such map refinements; we iterate at most eight times.
+such map refinements; we iterate at most eight times, and stop earlier when
+the segment consistency defined below has not improved by more than $0.002$
+for two consecutive iterations (Sec.~\ref{sec:exp_robust}).
 
 \paragraph{Unsupervised diagnostics.} To monitor the iterations without
 ground truth we compute, for every intermediate result, the bone-ratio
@@ -474,11 +476,82 @@ the one selected by any diagnostic (49.3\,mm at best, with the segment
 consistency), the best possible choice being 46.5\,mm. The diagnostics are
 instead effective as a stopping criterion: stopping when the segment
 consistency has not improved by more than $0.002$ for two consecutive
-iterations gives 49.4\,mm with 5.4 iterations on average instead of 7.7.
+iterations gives 49.4\,mm with 5.4 iterations on average instead of 7.7. We
+adopt this rule in all the following experiments.
 
-\paragraph{Limitations.} The garments are simple geometric models, not cloth
-simulations; the conclusions must be confirmed on real scans of clothed
-people with ground-truth skeletons, e.g.\ CAPE~\citep{ma2020cape}.
+% ----------------------------------------------------------------------------
+\subsection{Real scans of clothed people}
+\label{sec:exp_real}
+% ----------------------------------------------------------------------------
+% code: feature/target-skeleton-priors after 27c1ce8 (stopping rule),
+% tools/datasets/dress4d.py, tools/evaluate_scans.py samples/4ddress_1pertake
+
+We evaluate on 4D-DRESS~\citep{wang2024dress}, which provides textured scans
+of real people in their own clothes together with a registered SMPL body. We
+use two subjects (00123 and 00127) and one frame per sequence, the middle one,
+for a total of 25 scans: 11 in \emph{inner} garments only and 14 with an
+\emph{outer} layer (jackets, coats), which hides the body much more. The
+ground-truth joints are given by the forward kinematics of the registered
+gender-specific SMPL model. Each scan is sampled with 8000 points, after
+removing the points farther than 30\,cm from the registered body (floor and
+capture artefacts), and the landmarks are the scan points closest to the
+landmark vertices of the registration. The source is the neutral SMPL
+template, as in the synthetic benchmark. Table~\ref{tab:real} reports the
+results of the variants of Sec.~\ref{sec:exp_robust}.
+
+\begin{table}[t]
+  \centering
+  \caption{Mean (median) joint error in mm of the spectral transfer on 25
+  scans of 4D-DRESS (one frame per sequence, subjects 00123 and 00127);
+  failures are transfers with an error above 10\,cm; mean time per transfer.}
+  \label{tab:real}
+  \small
+  \begin{tabular}{lccrr}
+    \toprule
+    & inner (11) & outer (14) & failures & time \\
+    \midrule
+    Baseline                 & 40.8 (29.2) & 81.9 (45.1) & 4/25 & 21\,s \\
+    + limb landmarks         & 29.6 (28.3) & 78.2 (48.3) & 4/25 & 23\,s \\
+    + restarts               & 29.7 (29.2) & 71.7 (44.3) & 3/25 & 33\,s \\
+    + guided refinement      & 38.9 (27.3) & 82.1 (42.9) & 4/25 & 66\,s \\
+    All three                & 27.7 (26.1) & 53.7 (45.6) & 1/25 & 84\,s \\
+    All three + priors       & \textbf{25.5} (\textbf{23.5}) & \textbf{52.4} (\textbf{42.2}) & 1/25 & 81\,s \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The real scans confirm the synthetic findings. The combination of the three
+components and the priors reduces the mean error by 38\% with inner garments
+(from 40.8 to 25.5\,mm) and by 36\% with outer garments (from 81.9 to
+52.4\,mm), and the failures from four to one. Most of the gain on the inner
+garments comes from the limb landmarks, which fix the only failure of the
+baseline on this category; on the outer garments no component alone is
+sufficient, as in the synthetic shirt-and-skirt condition. The median, which
+ignores the failures, improves less (from 45.1 to 42.2\,mm on the outer
+garments): the residual error of the successful transfers is due to the
+garments themselves, which displace the surface by several centimetres. The
+gain is largest on the arms (from 48.0 to 18.8\,mm with inner and from 88.9 to
+47.2\,mm with outer garments) and smaller on the legs (from 47.9 to 39.3 and
+from 96.2 to 63.7\,mm). Unlike in the synthetic benchmark, the least accurate
+joints are now the ankles and the feet (63--76\,mm), covered by trousers and
+shoes, rather than the knees.
+
+\paragraph{Diagnostics and failures.} The ranking of the diagnostics is
+stable: over the 529 intermediate results the segment consistency is again the
+most correlated with the error (Spearman $\rho = 0.83$) and the best detector
+of failures (AUC 0.96), followed by the bone ratios (0.77, 0.94). The
+plausibility check flags every failure of the variants without the guided
+refinement, with at most two false alarms out of 25. With the stopping rule
+the refinement uses 4.6 iterations on average. The remaining failure (134.8\,mm
+on a scan with a long coat) is caused by the restarts: the initial map gives
+64.6\,mm but is judged implausible, and the restart with the smallest
+bone-ratio deviation is a worse map. Selecting the restart with the segment
+consistency, the better failure detector, is a natural improvement.
+
+\paragraph{Limitations.} The real-data evaluation covers only two subjects and
+one frame per sequence; it must be extended to more subjects and frames of
+4D-DRESS and to CAPE~\citep{ma2020cape}. The ground truth itself is the joints
+of a registered SMPL body, which has its own error under loose clothing.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
