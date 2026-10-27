@@ -168,6 +168,7 @@ def transfer_skeleton(
         # Scale the affinities to the typical norm of the spectral embedding.
         embedding_norm = np.median(np.linalg.norm(basis_src.evecs[:, :k], axis=1))
         scale = it_cfg.feature_weight * embedding_norm / np.median(np.linalg.norm(affinity_src, axis=1))
+        best_consistency, stalled = diag["segment_consistency"], 0
         for it in range(it_cfg.n_iterations):
             skeleton = spectral
             if config.skeleton_priors is not None:
@@ -181,7 +182,11 @@ def transfer_skeleton(
             spectral, pointwise, diag = evaluate(C, p2p, f"iteration {it + 1}")
             step = np.linalg.norm(spectral - previous, axis=1).max() / bone_lengths(spectral, source.parents).mean()
             history[-1]["joint_step"] = float(step)
-            if step < it_cfg.tolerance:
+            if diag["segment_consistency"] > best_consistency + it_cfg.stop_min_gain:
+                best_consistency, stalled = diag["segment_consistency"], 0
+            else:
+                stalled += 1
+            if step < it_cfg.tolerance or (it_cfg.stop_patience and stalled >= it_cfg.stop_patience):
                 break
 
     # 5) Sanity check and optional skeleton priors

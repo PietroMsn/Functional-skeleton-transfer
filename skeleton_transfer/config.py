@@ -95,6 +95,12 @@ class IterativeConfig:
     bone segments); the same is computed on the source with its skeleton.
     These affinities are appended to the spectral embeddings in the
     point-to-point searches, so that the correspondence respects the skeleton.
+
+    The iterations do not reach a fixed point (the joints keep oscillating by a
+    few percent of a bone), so they stop when the *segment consistency* of the
+    result (see :func:`.diagnostics.transfer_diagnostics`), the unsupervised
+    diagnostic best correlated with the joint error, stops improving. The last
+    iterate is returned.
     """
 
     #: Maximum number of skeleton -> correspondence iterations.
@@ -105,7 +111,13 @@ class IterativeConfig:
     temperature: float = 0.25
     #: Refinement steps (p2p <-> functional map) per iteration.
     n_refine_steps: int = 3
-    #: Stop when no joint moves more than this fraction of the mean bone length.
+    #: Stop after ``stop_patience`` consecutive iterations that do not improve
+    #: the best segment consistency by more than ``stop_min_gain``
+    #: (0 disables the rule).
+    stop_patience: int = 2
+    stop_min_gain: float = 0.002
+    #: Also stop when no joint moves more than this fraction of the mean bone
+    #: length (rarely reached in practice).
     tolerance: float = 0.01
 
 

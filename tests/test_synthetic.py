@@ -52,3 +52,27 @@ def _params(model):
     pose = rng.normal(0, 0.3, (24, 3))
     pose[0] = 0
     return betas, pose
+
+
+def test_iterations_stop_on_segment_consistency(model):
+    """The refinement stops when the segment consistency stops improving."""
+    from skeleton_transfer import IterativeConfig, TransferConfig, transfer_skeleton
+
+    target, _ = make_synthetic_target(model, np.random.default_rng(2), clothing=("skirt",), n_points=3000)
+    cfg = IterativeConfig(n_iterations=8, stop_patience=2, stop_min_gain=0.002, tolerance=0.0)
+    result = transfer_skeleton(model.as_source(), target, TransferConfig(iterative=cfg))
+    consistency = [h["segment_consistency"] for h in result.history]
+    iterations = [h for h in result.history if h["stage"].startswith("iteration")]
+
+    # replay the rule on the recorded history: it must stop exactly where the pipeline did
+    best, stalled, expected = consistency[-len(iterations) - 1], 0, len(iterations)
+    for i, h in enumerate(iterations, start=1):
+        if h["segment_consistency"] > best + cfg.stop_min_gain:
+            best, stalled = h["segment_consistency"], 0
+        else:
+            stalled += 1
+        if stalled >= cfg.stop_patience:
+            expected = i
+            break
+    assert len(iterations) == expected <= cfg.n_iterations
+    assert result.diagnostics == {k: v for k, v in result.history[-1].items() if k in result.diagnostics}

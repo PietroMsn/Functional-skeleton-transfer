@@ -23,6 +23,7 @@ import glob
 import logging
 import os
 import pickle
+import zlib
 
 import numpy as np
 
@@ -44,6 +45,7 @@ def main():
     parser.add_argument("--group-by", choices=["category", "gender"], default="category")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="evaluate_scans.pkl")
+    parser.add_argument("--resume", action="store_true", help="skip the samples already saved in --out")
     parser.add_argument("--report", metavar="PKL", help="only report saved results")
     args = parser.parse_args()
     logging.basicConfig(level=logging.ERROR)
@@ -65,9 +67,17 @@ def main():
     files = sorted(glob.glob(os.path.join(args.samples, "**", "*.npz"), recursive=True))[: args.limit]
     print(f"{len(files)} samples")
     evaluator = Evaluator(source_model.as_source())
-    rng = np.random.default_rng(args.seed)
+    if args.resume and os.path.exists(args.out):
+        with open(args.out, "rb") as f:
+            evaluator.runs = pickle.load(f)
+        print(f"Resuming from {args.out}: {len(evaluator.runs)} runs already done")
+    done = {r["target"] for r in evaluator.runs}
     for path in files:
         sample = load_sample(path)
+        if sample.name in done:
+            continue
+        # one generator per sample: the sampled points do not depend on which samples run before
+        rng = np.random.default_rng([args.seed, zlib.crc32(sample.name.encode())])
         if sample.joints is None and sample.gender not in regressors:
             logging.warning("No %s SMPL model given, using the source regressor for %s", sample.gender, sample.name)
         regressor = regressors.get(sample.gender, regressors["neutral"])

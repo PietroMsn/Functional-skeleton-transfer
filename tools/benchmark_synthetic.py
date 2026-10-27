@@ -10,11 +10,13 @@ Usage, from the repository root::
     python tools/benchmark_synthetic.py --smpl data/basicmodel_m_lbs.mat -n 8 --out bench.pkl
 
 Every stage of every run (initial map, restarts, iterations) is saved with
-its unsupervised diagnostics; ``--report bench.pkl`` re-prints the tables.
+its unsupervised diagnostics, after every body: an interrupted run continues
+with ``--resume``. ``--report bench.pkl`` re-prints the tables.
 """
 
 import argparse
 import logging
+import os
 import pickle
 
 import numpy as np
@@ -29,16 +31,26 @@ CONDITIONS = {"nude": (), "shirt": ("shirt",), "skirt": ("skirt",), "shirt+skirt
 def run(args):
     model = SMPLModel.from_file(args.smpl)
     evaluator = Evaluator(model.as_source())
+    if args.resume and os.path.exists(args.out):
+        with open(args.out, "rb") as f:
+            evaluator.runs = pickle.load(f)
+        print(f"Resuming from {args.out}: {len(evaluator.runs)} runs already done")
+    done = {(r["condition"], r["target"]) for r in evaluator.runs}
     for condition in args.conditions:
         rng = np.random.default_rng(args.seed)  # same bodies for every condition
         for i in range(args.n):
+            # Always generate the body, so that the random sequence (and thus
+            # every following body) is the same when resuming.
             target, gt = make_synthetic_target(
                 model, rng, pose_std=args.pose_std, shape_std=args.shape_std, clothing=CONDITIONS[condition],
                 n_points=args.n_points, noise=args.noise, landmarks=ALL_LANDMARKS,
             )  # fmt: skip
-            print(evaluator.evaluate(target, gt, condition, f"{i + 1}/{args.n}"), flush=True)
-    with open(args.out, "wb") as f:
-        pickle.dump(evaluator.runs, f)
+            name = f"{i + 1}/{args.n}"
+            if (condition, name) in done:
+                continue
+            print(evaluator.evaluate(target, gt, condition, name), flush=True)
+            with open(args.out, "wb") as f:  # saved after every body: the run can be interrupted
+                pickle.dump(evaluator.runs, f)
     print(f"Saved {args.out}")
     return evaluator.runs
 
@@ -54,6 +66,7 @@ def main():
     parser.add_argument("--noise", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="benchmark_synthetic.pkl")
+    parser.add_argument("--resume", action="store_true", help="skip the bodies already saved in --out")
     parser.add_argument("--report", metavar="PKL", help="only report saved results")
     args = parser.parse_args()
     logging.basicConfig(level=logging.ERROR)
