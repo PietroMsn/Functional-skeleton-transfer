@@ -34,7 +34,7 @@ from skeleton_transfer.smpl import SMPLModel, find_smpl_models
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("samples", help="folder with the exported .npz samples (searched recursively)")
+    parser.add_argument("samples", nargs="?", help="folder with the exported .npz samples (searched recursively)")
     parser.add_argument("--source", default="data/basicmodel_m_lbs.mat", help="SMPL model used as source")
     parser.add_argument("--smpl-dir", help="folder with the official SMPL models (male, female, neutral)")
     for gender in ("male", "female", "neutral"):
@@ -42,18 +42,25 @@ def main():
     parser.add_argument("--n-points", type=int, default=8000, help="points sampled on each scan")
     parser.add_argument("--max-distance", type=float, default=0.3, help="drop scan points farther from the body (m)")
     parser.add_argument("--limit", type=int, help="evaluate at most this many samples")
+    parser.add_argument("--shard", metavar="I/N", help="only evaluate the I-th of N interleaved parts of the samples "
+                        "(to run N processes in parallel, each with its own --out; merge them with --report)")
     parser.add_argument("--group-by", choices=["category", "gender"], default="category")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="evaluate_scans.pkl")
     parser.add_argument("--resume", action="store_true", help="skip the runs already saved in --out (only missing variants are run)")
-    parser.add_argument("--report", metavar="PKL", help="only report saved results")
+    parser.add_argument("--report", metavar="PKL", nargs="+", help="only report saved results (several files are merged)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.ERROR)
 
     if args.report:
-        with open(args.report, "rb") as f:
-            report(pickle.load(f))
+        runs = {}
+        for path in args.report:
+            with open(path, "rb") as f:
+                runs.update({(r["target"], r["variant"]): r for r in pickle.load(f)})
+        report(list(runs.values()))
         return
+    if not args.samples:
+        parser.error("the samples folder is required")
 
     source_model = SMPLModel.from_file(args.source)
     regressors = {"neutral": source_model.J_regressor}
@@ -65,6 +72,9 @@ def main():
             regressors[gender] = SMPLModel.from_file(path).J_regressor
 
     files = sorted(glob.glob(os.path.join(args.samples, "**", "*.npz"), recursive=True))[: args.limit]
+    if args.shard:
+        index, count = map(int, args.shard.split("/"))
+        files = files[index - 1 :: count]
     print(f"{len(files)} samples")
     evaluator = Evaluator(source_model.as_source())
     if args.resume and os.path.exists(args.out):
