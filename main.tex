@@ -486,16 +486,17 @@ adopt this rule in all the following experiments.
 \subsection{Real scans of clothed people}
 \label{sec:exp_real}
 % ----------------------------------------------------------------------------
-% code: feature/target-skeleton-priors f0d7efc (+ --shard in evaluate_scans.py),
-% tools/datasets/dress4d.py, tools/datasets/select_frames.py,
-% tools/evaluate_scans.py samples/4ddress_eval (provenance in manifest.csv)
+% code: feature/target-skeleton-priors 05187bc, tools/datasets/dress4d.py (all 28 archives),
+% tools/datasets/select_frames.py --keep samples/4ddress_eval -> samples/4ddress_eval_full,
+% tools/evaluate_scans.py --shard (provenance in manifest.csv)
 
 We evaluate on 4D-DRESS~\citep{wang2024dress}, which provides textured scans
 of real people in their own clothes together with a registered SMPL body. We
-use ten subjects (five female, five male) and one frame per sequence, for a
-total of 88 scans: 74 in \emph{inner} garments only (all ten subjects) and 14
-with an \emph{outer} layer (jackets, coats; subjects 00123 and 00127), which
-hides the body much more. Within each sequence the frame is chosen by
+use nineteen of its subjects (ten female, nine male) and one frame
+per sequence, for a total of 185 scans: 149 in \emph{inner} garments only
+(all nineteen subjects) and 36 with an \emph{outer} layer (jackets, coats;
+subjects 00123, 00127, 00129, 00134 and 00179), which hides the body much
+more. Within each sequence the frame is chosen by
 farthest-point sampling on the SMPL pose parameters, so that the poses of the
 benchmark are as varied as possible. The ground-truth joints are given by the
 forward kinematics of the registered gender-specific SMPL model. Each scan is
@@ -508,64 +509,70 @@ Sec.~\ref{sec:exp_robust}.
 
 \begin{table}[t]
   \centering
-  \caption{Mean (median) joint error in mm of the spectral transfer on 88
-  scans of 4D-DRESS (ten subjects, one frame per sequence); failures are
+  \caption{Mean (median) joint error in mm of the spectral transfer on 185
+  scans of 4D-DRESS (nineteen subjects, one frame per sequence); failures are
   transfers with an error above 10\,cm.}
   \label{tab:real}
   \small
   \begin{tabular}{lccr}
     \toprule
-    & inner (74) & outer (14) & failures \\
+    & inner (149) & outer (36) & failures \\
     \midrule
-    Baseline                 & 77.3 (38.1) & 81.9 (45.1) & 23/88 \\
-    + limb landmarks         & 62.8 (36.1) & 78.2 (48.3) & 17/88 \\
-    + restarts               & 77.1 (35.8) & 71.7 (44.3) & 19/88 \\
-    + guided refinement      & 73.4 (36.7) & 82.1 (42.9) & 22/88 \\
-    All three                & 51.7 (34.2) & 53.7 (45.6) & 10/88 \\
-    All three + priors       & 48.9 (31.6) & 52.4 (42.2) & 10/88 \\
-    \quad refined restarts   & \textbf{39.5} (\textbf{30.1}) & \textbf{46.2} (\textbf{39.0}) & \textbf{6/88} \\
+    Baseline                 & 91.5 (40.5) & 109.3 (50.1) & 56/185 \\
+    + limb landmarks         & 75.7 (37.6) &  98.2 (51.4) & 45/185 \\
+    + restarts               & 89.3 (38.7) &  98.0 (48.4) & 50/185 \\
+    + guided refinement      & 83.8 (37.4) & 104.8 (48.7) & 53/185 \\
+    All three                & 57.7 (35.3) &  70.8 (42.5) & 30/185 \\
+    All three + priors       & 54.1 (33.3) &  65.8 (41.1) & 28/185 \\
+    \quad refined restarts   & \textbf{44.9} (\textbf{31.6}) & \textbf{46.7} (\textbf{36.4}) & \textbf{14/185} \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 The real scans confirm the synthetic findings. The complete pipeline with
-refined restarts reduces the mean error by 49\% with inner garments (from
-77.3 to 39.5\,mm) and by 44\% with outer garments (from 81.9 to 46.2\,mm), and
-the failures from 23 to 6 out of 88. No component alone is sufficient: the
-limb landmarks give the largest single gain on the inner garments and the
-restarts on the outer ones, but only their combination halves the failures.
-The median, which ignores the failures, improves less (from 38.1 to 30.1\,mm
-and from 45.1 to 39.0\,mm): the residual error of the successful transfers is
+refined restarts reduces the mean error by 51\% with inner garments (from
+91.5 to 44.9\,mm) and by 57\% with outer garments (from 109.3 to 46.7\,mm), and
+the failures from 56 to 14 out of 185. No component alone is sufficient: the
+limb landmarks give the largest single gain on the inner garments, while on
+the outer ones the limb landmarks and the restarts give the same gain (98.2
+and 98.0\,mm); only their combination nearly halves the failures, and the
+refined restarts halve them again.
+The median, which ignores the failures, improves less (from 40.5 to 31.6\,mm
+and from 50.1 to 36.4\,mm): the residual error of the successful transfers is
 due to the garments themselves, which displace the surface by several
-centimetres. The gain is largest on the arms (from 89.7 to 35.5\,mm with
-inner and from 88.9 to 45.9\,mm with outer garments) and on the legs (from
-89.2 to 51.6 and from 96.2 to 50.2\,mm), and smaller on the spine (from 40.9 to
-29.9 and from 51.3 to 41.5\,mm). Unlike in the synthetic benchmark, the least
-accurate joints are the ankles (66--69\,mm) and the feet (51--54\,mm), covered
-by trousers and shoes, rather than the knees.
+centimetres. The gain is largest on the legs (from 109.8 to 55.8\,mm with
+inner and from 145.7 to 42.5\,mm with outer garments) and on the arms (from
+96.4 to 43.1 and from 109.7 to 48.0\,mm), and smaller on the spine (from 59.1
+to 33.2 and from 60.2 to 50.4\,mm). Unlike in the synthetic benchmark, the
+least accurate joints are the ankles (66--71\,mm) and the feet (54--56\,mm),
+covered by trousers and shoes, rather than the knees.
 
 The difficulty varies considerably across subjects. The baseline fails on six
-of the seven scans of one subject (mean 175.0\,mm), which the complete
-pipeline brings to 43.4\,mm without failures, while two subjects account for
-four of the six remaining failures. The
-pipeline is equally accurate on female and male subjects (40.0 and 41.0\,mm),
-although the baseline is not (72.9 and 82.9\,mm). The 25 scans of a first,
-smaller version of this benchmark (two subjects, middle frame of each
-sequence) are easier than the 63 added afterwards (37.1 against 41.9\,mm with
-the complete pipeline, 63.8 against 83.7\,mm with the baseline): the
-conclusions of the comparison, however, did not change.
+of the seven scans of one subject (mean 175.0\,mm) and on six of the nine of
+another (209.0\,mm), which the complete pipeline brings to 43.4\,mm without
+failures and to 69.1\,mm with one failure, while three subjects account for
+six of the 14 remaining failures. The pipeline is similarly accurate on female
+and male subjects (43.0 and 47.5\,mm), as is the baseline (99.4 and
+90.5\,mm). The benchmark grew in three steps: 25 scans of two subjects
+(middle frame of each sequence), 88 scans of ten subjects, and the 185 scans
+of Tab.~\ref{tab:real}. The 97 scans of the nine subjects added last are
+harder than the first 88 (49.5 against 40.5\,mm with the complete pipeline,
+110.4 against 78.0\,mm with the baseline): the conclusions of the comparison,
+however, did not change.
 
-\paragraph{Diagnostics and failures.} Over the 2909 intermediate results the
-diagnostics rank as in the synthetic benchmark, but they are closer to each
-other: the segment consistency, the bone ratios and the orthogonality are
-equally correlated with the error (Spearman $\rho = 0.83$), and the segment
-consistency and the symmetry are the best detectors of failures (AUC 0.93,
-against 0.92 for the bone ratios). The plausibility check is reliable for the
-variants without the guided refinement (it flags 15 of the 19 failures with
-restarts, with two false alarms), but less so after the refinement, which
-can produce a skeleton with plausible proportions on a wrong correspondence
-(3 of the 6 final failures are flagged). With the stopping rule the
-refinement uses 4.5 iterations on average.
+\paragraph{Diagnostics and failures.} Over the 6707 intermediate results the
+diagnostics are close to each other: the coverage, the symmetry, the
+orthogonality and the segment consistency are about equally correlated with
+the error (Spearman $\rho$ from 0.84 to 0.86, 0.83 for the bone ratios and
+0.78 for the spectral--pointwise gap), and the symmetry, the orthogonality and
+the coverage are the best detectors of failures (AUC 0.93, against 0.92 for
+the segment consistency and 0.91 for the bone ratios). The plausibility
+check is reliable for the variants without the guided refinement (it flags
+44 of the 50 failures with restarts, with nine false alarms), but less so
+after the refinement, which can produce a skeleton with plausible
+proportions on a wrong correspondence (7 of the 14 final failures are
+flagged). With the stopping rule the refinement uses 4.9 iterations on
+average.
 
 \paragraph{Selecting the restart.} Choosing the restart with the segment
 consistency instead of the bone ratios, before the refinement, does not help
@@ -579,12 +586,13 @@ the refinement the diagnostics are reliable (Tab.~\ref{tab:diagnostics}), so
 we refine every candidate and keep the one with the highest final segment
 consistency. We selected this rule on the 9 synthetic and 4 real targets of
 the first benchmark where the restarts are triggered, where it reduces the
-final error from 73.7 to 70.3\,mm and from 87.5 to 66.1\,mm. On the 88 scans
-of Tab.~\ref{tab:real}, which include 63 scans not used for this choice, the
-restarts are triggered on 23 scans; on these the refined restarts reduce the
-mean error from 102.5 to 68.4\,mm and the failures from 10 to 6, improving 16
-of the 23 transfers and worsening 3. An oracle choosing the best candidate
-would reach 54.1\,mm with 2 failures, so the choice of the candidate, not
+final error from 73.7 to 70.3\,mm and from 87.5 to 66.1\,mm. On the 185 scans
+of Tab.~\ref{tab:real}, which include 160 scans not used for this choice, the
+restarts are triggered on 62 scans; on these the refined restarts reduce the
+mean error from 105.8 to 72.6\,mm and the failures from 27 to 13, improving 39
+of the 62 transfers and worsening 9 (by more than 1\,mm). An oracle choosing
+the best candidate would reach 58.4\,mm with 6 failures, so the choice of the
+candidate, not
 the candidates themselves, is the main source of the remaining failures. The
 cost is one refinement per candidate, i.e.\ about four times the time of the
 complete pipeline on the triggered targets only.
@@ -599,20 +607,21 @@ model): a rigid alignment on the landmarks of the torso and legs, a pose fit
 to the landmarks, and an ICP-style fit of pose, shape and translation with a
 robust (Geman--McClure) scan-to-body term, a body-to-scan term that is
 stronger where the body leaves the scan, and L2 priors on pose and shape. On
-an unclothed posed SMPL body it recovers the joints within 6\,mm. On the 88
-scans it reaches a mean (median) error of 17.0 (14.8)\,mm, 17.0\,mm with inner
-and 17.4\,mm with outer garments, with one failure, against 40.5 (31.5)\,mm and
-six failures of the complete transfer, which is more accurate on only one of
-the 88 scans; the fit also takes 62\,s per scan against about 400\,s. This
+an unclothed posed SMPL body it recovers the joints within 6\,mm. On the 185
+scans it reaches a mean (median) error of 17.5 (15.6)\,mm, 17.2\,mm with inner
+and 18.7\,mm with outer garments, with one failure, against 45.2 (32.8)\,mm and
+14 failures of the complete transfer, which is more accurate on only five of
+the 185 scans; the fit also takes 62\,s per scan against about 400\,s
+(measured on the first 88 scans, on an otherwise idle machine). This
 setting favours the fit by construction: the ground truth is itself a SMPL
 registration, so the fitted model, its joint regressor and its kinematic tree
 are those of the ground truth. The comparison shows, however, that on humans
 with a SMPL template the transfer is not competitive with a parametric fit,
 and that its use is for templates and skeletons without a parametric model.
 
-\paragraph{Limitations.} The outer garments are represented by only two
-subjects; the evaluation must be extended to more subjects with outer layers
-and to CAPE~\citep{ma2020cape}. The ground truth itself is the joints of a
+\paragraph{Limitations.} The outer garments are still a minority (36 scans of
+five subjects); the evaluation must be extended to more subjects with outer
+layers and to CAPE~\citep{ma2020cape}. The ground truth itself is the joints of a
 registered SMPL body, which has its own error under loose clothing.
 
 \bibliographystyle{plainnat}
