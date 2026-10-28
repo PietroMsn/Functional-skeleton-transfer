@@ -589,6 +589,27 @@ the candidates themselves, is the main source of the remaining failures. The
 cost is one refinement per candidate, i.e.\ about four times the time of the
 complete pipeline on the triggered targets only.
 
+\paragraph{Comparison with SMPL fitting.}
+% code: skeleton_transfer/smpl_fitting.py, tools/fit_smpl_baseline.py (not yet committed)
+When the template is SMPL, the direct alternative is to register the
+parametric body to the scan and read the joints of the fit. We implemented a
+standard optimization-based registration for clothed scans with the same
+inputs as the transfer (the same 8000 points and 11 landmarks, the neutral
+model): a rigid alignment on the landmarks of the torso and legs, a pose fit
+to the landmarks, and an ICP-style fit of pose, shape and translation with a
+robust (Geman--McClure) scan-to-body term, a body-to-scan term that is
+stronger where the body leaves the scan, and L2 priors on pose and shape. On
+an unclothed posed SMPL body it recovers the joints within 6\,mm. On the 88
+scans it reaches a mean (median) error of 17.0 (14.8)\,mm, 17.0\,mm with inner
+and 17.4\,mm with outer garments, with one failure, against 40.5 (31.5)\,mm and
+six failures of the complete transfer, which is more accurate on only one of
+the 88 scans; the fit also takes 62\,s per scan against about 400\,s. This
+setting favours the fit by construction: the ground truth is itself a SMPL
+registration, so the fitted model, its joint regressor and its kinematic tree
+are those of the ground truth. The comparison shows, however, that on humans
+with a SMPL template the transfer is not competitive with a parametric fit,
+and that its use is for templates and skeletons without a parametric model.
+
 \paragraph{Limitations.} The outer garments are represented by only two
 subjects; the evaluation must be extended to more subjects with outer layers
 and to CAPE~\citep{ma2020cape}. The ground truth itself is the joints of a
