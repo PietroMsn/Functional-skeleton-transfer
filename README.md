@@ -23,6 +23,7 @@ latexmk -pdf main.tex
 | 2026-10-26 | `20fc426` (feature/target-skeleton-priors) | neutral SMPL source; robust correspondence (limb landmarks, restarts, skeleton-guided refinement), unsupervised diagnostics, convergence and stopping criterion |
 | 2026-10-27 | after `27c1ce8` (feature/target-skeleton-priors, stopping rule not yet committed) | stopping rule in the method; real scans: 4D-DRESS, one frame per sequence (Tab. 5) |
 | 2026-10-27 | after `2daabbb` (not yet committed) | restart selection after the refinement (segment consistency), evaluated on the 13 targets where the restarts trigger |
+| 2026-10-28 | `f0d7efc` + `--shard` (feature/target-skeleton-priors) | real scans extended to 88 frames of ten subjects with varied poses (Tab. 5), refined restarts validated on the 63 new scans |
 
 ## Reproducing the numbers
 
@@ -32,8 +33,10 @@ latexmk -pdf main.tex
   `tests/test_parity.py` (the table uses 20 poses per sigma).
 - Variants, diagnostics and convergence (Tab. 3-4): `tools/benchmark_synthetic.py -n 6` at commit
   `20fc426` (offline analysis of the saved stage histories for the stopping rule).
-- Real scans (Tab. 5): `tools/datasets/dress4d.py` (subjects 00123 and 00127,
-  middle frame of each take), then `tools/evaluate_scans.py samples/4ddress_1pertake
-  --smpl-dir <SMPL v1.1.0 models>`.
+- Real scans (Tab. 5): `tools/datasets/dress4d.py` (subjects 00123, 00127, 00129,
+  00134, 00135, 00147, 00149, 00151, 00160, 00167; stride 20), then
+  `tools/datasets/select_frames.py samples/4ddress --out samples/4ddress_eval` (one
+  frame per sequence; the provenance of every scan is in `manifest.csv`) and
+  `tools/evaluate_scans.py samples/4ddress_eval --smpl-dir <SMPL v1.1.0 models>`.
 - Synthetic benchmark (Tab. 2): `tools/benchmark_synthetic.py -n 8` at commit
   `77fccbb`; prior weights evaluated offline from the saved joints.
