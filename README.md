@@ -43,7 +43,8 @@ latexmk -pdf main.tex
   previous version kept; the provenance of every scan is in `manifest.csv`) and
   `tools/evaluate_scans.py <folder> --smpl-dir <SMPL v1.1.0 models> --shard I/N`,
   merged with `--report`; SMPL fitting with `tools/fit_smpl_baseline.py` and
-  `--compare`. Per-subject, plausibility and restart statistics: offline
-  analysis of the saved runs.
+  `--compare`. Per-subject, plausibility and restart statistics:
+  `tools/analyze_scans.py <eval pickles> --samples samples/4ddress --subset
+  samples/4ddress_eval` (commit `fa403c7`).
 - Synthetic benchmark (Tab. 2): `tools/benchmark_synthetic.py -n 8` at commit
   `77fccbb`; prior weights evaluated offline from the saved joints.
