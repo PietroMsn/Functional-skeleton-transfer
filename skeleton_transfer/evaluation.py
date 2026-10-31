@@ -66,6 +66,19 @@ def default_variants() -> List[Variant]:
     ]  # fmt: skip
 
 
+def with_cmh(variants: List[Variant]) -> List[Variant]:
+    """The same variants with the CMH functions in the maps (named ``"<name>, CMH"``)."""
+    return [(f"{name}, CMH", extra, replace(cfg, functional_map=replace(cfg.functional_map, cmh=True)))
+            for name, extra, cfg in variants]  # fmt: skip
+
+
+def with_plain_zoomout(variants: List[Variant]) -> List[Variant]:
+    """The same variants with the plain (not bijective) ZoomOut of the
+    original method (named ``"<name>, plain ZoomOut"``)."""
+    return [(f"{name}, plain ZoomOut", extra, replace(cfg, functional_map=replace(cfg.functional_map, bijective=False)))
+            for name, extra, cfg in variants]  # fmt: skip
+
+
 def completed_targets(runs: List[dict], variants: List[Variant]) -> set:
     """(condition, target) pairs for which every variant has been run."""
     done = {}
@@ -104,7 +117,7 @@ class Evaluator:
         """
         n_base = len(self.source.landmarks)
         saved = {r["variant"]: r for r in self.runs if r["condition"] == condition and r["target"] == name}
-        if len(saved) < len(self.variants):
+        if any(variant not in saved for variant, _, _ in self.variants):
             basis_tgt = compute_laplace_basis(target.vertices, target.faces, self.config.spectral.n_eigs, target.faces is None)
         line = f"{condition:14s} {str(name):>24s}"
         for variant, extra, cfg in self.variants:

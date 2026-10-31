@@ -29,6 +29,19 @@ def test_sphere_spectrum():
     assert basis.area == pytest.approx(4 * np.pi, rel=0.01)
 
 
+def test_cmh_functions_represent_the_coordinates():
+    vertices, faces = ellipsoid_mesh(radii=(1.0, 0.8, 0.6))
+    vertices = vertices + [0.3, -0.2, 0.1]
+    basis = compute_laplace_basis(vertices, faces, n_eigs=10)
+    phi = basis.functions(10, cmh=True)
+    assert phi.shape == (len(vertices), 13)
+    np.testing.assert_array_equal(phi[:, :10], basis.evecs)
+    np.testing.assert_allclose(phi.T @ (basis.mass @ phi), np.eye(13), atol=1e-8)
+    # The coordinates are exactly reconstructed by the k + 3 functions (not by the k eigenfunctions).
+    np.testing.assert_allclose(phi @ basis.project(vertices, 10, cmh=True), vertices, atol=1e-10)
+    assert np.abs(basis.evecs @ basis.project(vertices, 10) - vertices).max() > 1e-3
+
+
 def test_basis_is_deterministic():
     vertices, faces = ellipsoid_mesh(radii=(1.0, 0.8, 0.6))
     a = compute_laplace_basis(vertices, faces, n_eigs=10)

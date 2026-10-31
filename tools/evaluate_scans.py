@@ -27,7 +27,9 @@ import zlib
 
 import numpy as np
 
-from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, completed_targets, report
+from skeleton_transfer.evaluation import (
+    ALL_LANDMARKS, Evaluator, completed_targets, default_variants, report, with_cmh, with_plain_zoomout,
+)  # fmt: skip
 from skeleton_transfer.scans import load_sample, make_target
 from skeleton_transfer.smpl import SMPLModel, find_smpl_models
 
@@ -44,6 +46,9 @@ def main():
     parser.add_argument("--limit", type=int, help="evaluate at most this many samples")
     parser.add_argument("--shard", metavar="I/N", help="only evaluate the I-th of N interleaved parts of the samples "
                         "(to run N processes in parallel, each with its own --out; merge them with --report)")
+    parser.add_argument("--variants", nargs="+", help="names of the variants to run (default: the variants of the paper); "
+                        "the names ending in ', CMH' run them with the CMH functions in the maps, "
+                        "those ending in ', plain ZoomOut' with the ZoomOut of the original method")
     parser.add_argument("--group-by", choices=["category", "gender"], default="category")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="evaluate_scans.pkl")
@@ -76,7 +81,14 @@ def main():
         index, count = map(int, args.shard.split("/"))
         files = files[index - 1 :: count]
     print(f"{len(files)} samples")
-    evaluator = Evaluator(source_model.as_source())
+    variants = None
+    if args.variants:
+        pool = {v[0]: v for v in default_variants() + with_cmh(default_variants()) + with_plain_zoomout(default_variants())}
+        unknown = set(args.variants) - set(pool)
+        if unknown:
+            parser.error(f"unknown variants: {', '.join(sorted(unknown))}")
+        variants = [pool[name] for name in args.variants]
+    evaluator = Evaluator(source_model.as_source(), variants)
     if args.resume and os.path.exists(args.out):
         with open(args.out, "rb") as f:
             evaluator.runs = pickle.load(f)

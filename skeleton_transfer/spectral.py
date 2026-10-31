@@ -13,6 +13,11 @@ vertex) onto the first ``k`` eigenfunctions is
     f_hat = Phi[:, :k].T @ M @ f
 
 i.e. ``Phi.T @ M`` is the left pseudo-inverse of ``Phi``.
+
+Coordinates Manifold Harmonics (CMH, Marin et al. 2020) extend the first
+``k`` eigenfunctions with 3 functions, the ``M``-orthonormalized residuals of
+the x, y, z coordinates: the vertex coordinates are then represented exactly
+by the ``k + 3`` functions (:meth:`LaplaceBasis.functions`).
 """
 
 import logging
@@ -44,24 +49,38 @@ class LaplaceBasis:
     evals : (k,) eigenvalues, ascending
     evecs : (n_vertices, k) eigenfunctions, ``M``-orthonormal
     mass : (n_vertices, n_vertices) sparse lumped mass matrix
+    vertices : (n_vertices, 3) coordinates of the shape, needed by the CMH
+        functions
     """
 
     evals: np.ndarray
     evecs: np.ndarray
     mass: sparse.spmatrix
+    vertices: Optional[np.ndarray] = None
 
     @property
     def area(self) -> float:
         """Total surface area (sum of the lumped vertex areas)."""
         return float(self.mass.sum())
 
-    def project(self, f: np.ndarray, k: Optional[int] = None) -> np.ndarray:
-        """Spectral coefficients ``Phi[:, :k].T @ M @ f`` of a vertex function.
+    def functions(self, k: int, cmh: bool = False) -> np.ndarray:
+        """The first ``k`` eigenfunctions, followed by the 3 CMH functions if ``cmh``."""
+        phi = self.evecs[:, :k]
+        if not cmh:
+            return phi
+        for residual in (self.vertices - phi @ (phi.T @ (self.mass @ self.vertices))).T:
+            f = residual - phi @ (phi.T @ (self.mass @ residual))
+            phi = np.column_stack((phi, f / np.sqrt(f @ (self.mass @ f))))
+        return phi
+
+    def project(self, f: np.ndarray, k: Optional[int] = None, cmh: bool = False) -> np.ndarray:
+        """Spectral coefficients ``Phi.T @ M @ f`` of a vertex function on the
+        first ``k`` eigenfunctions (and the CMH functions if ``cmh``).
 
         ``f`` can be a vector or a matrix (one function per column), e.g. the
         vertex coordinates.
         """
-        phi = self.evecs if k is None else self.evecs[:, :k]
+        phi = self.evecs if k is None and not cmh else self.functions(k or self.evecs.shape[1], cmh)
         return phi.T @ (self.mass @ f)
 
 
@@ -114,4 +133,4 @@ def compute_laplace_basis(
         shift = 1e-8 * sparse.identity(vertices.shape[0])
         evals, evecs = eigsh(L - shift, **eig_kwargs)
 
-    return LaplaceBasis(evals=evals, evecs=evecs, mass=M)
+    return LaplaceBasis(evals=evals, evecs=evecs, mass=M, vertices=np.asarray(vertices, dtype=float))

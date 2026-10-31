@@ -45,7 +45,7 @@ import numpy as np
 
 from .config import TransferConfig
 from .diagnostics import bone_affinity, transfer_diagnostics
-from .functional_map import estimate_functional_map, refine_with_features
+from .functional_map import cmh_basis, estimate_functional_map, refine_with_features
 from .regressor import fit_spatial_regressor, locality_mask
 from .shapes import SourceShape, TargetShape
 from .skeleton_priors import apply_skeleton_priors, bone_lengths, is_plausible
@@ -130,8 +130,9 @@ def transfer_skeleton(
             target.vertices, target.faces, config.spectral.n_eigs, config.target_is_point_cloud or target.faces is None
         )
 
-    regressor_hat = regressor @ basis_src.evecs[:, :k]  # (n_joints, k)
-    target_coords_hat = basis_tgt.project(target.vertices, k)  # (k, 3)
+    phi_src = basis_src.functions(k, fm_cfg.cmh)  # (n_source_vertices, k), k + 3 with the CMH functions
+    regressor_hat = regressor @ phi_src  # (n_joints, k)
+    target_coords_hat = basis_tgt.project(target.vertices, k, fm_cfg.cmh)  # (k, 3)
     landmarks = (source.landmarks, target.landmarks) if fm_cfg.enforce_landmarks else None
     history = []
 
@@ -149,7 +150,7 @@ def transfer_skeleton(
     if it_cfg is not None:
         affinity_src = bone_affinity(source.vertices, source.joints, source.parents, it_cfg.temperature)
         # Scale the affinities to the typical norm of the spectral embedding.
-        embedding_norm = np.median(np.linalg.norm(basis_src.evecs[:, :k], axis=1))
+        embedding_norm = np.median(np.linalg.norm(phi_src, axis=1))
         scale = it_cfg.feature_weight * embedding_norm / np.median(np.linalg.norm(affinity_src, axis=1))
 
     def refine(C, p2p, spectral, pointwise, diag, label=""):
@@ -161,7 +162,7 @@ def transfer_skeleton(
                 skeleton = apply_skeleton_priors(spectral, source.parents, source.joints, config.skeleton_priors)
             affinity_tgt = bone_affinity(target.vertices, skeleton, source.parents, it_cfg.temperature)
             C, p2p = refine_with_features(
-                p2p, basis_src.evecs, basis_tgt.evecs, k, it_cfg.n_refine_steps,
+                p2p, cmh_basis(basis_src, fm_cfg), cmh_basis(basis_tgt, fm_cfg), k, it_cfg.n_refine_steps,
                 (scale * affinity_src, scale * affinity_tgt), landmarks,
             )  # fmt: skip
             previous = spectral

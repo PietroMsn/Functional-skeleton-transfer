@@ -40,6 +40,19 @@ class FunctionalMapConfig:
     n_eigs_final: int = 120
     #: Number of eigenfunctions added at each ZoomOut iteration.
     zoomout_step: int = 10
+    #: Extend the bases of the ZoomOut, of the refinements and of the
+    #: spectral transfer with the 3 Coordinates Manifold Harmonics, which
+    #: represent the vertex coordinates exactly (the maps become
+    #: ``(k + 3, k + 3)``). The initial map and the ICP stay in the
+    #: Laplace-Beltrami basis.
+    cmh: bool = False
+    #: Bijective ZoomOut: refine also a target -> source map and couple the
+    #: two directions with a bijectivity term (see
+    #: :func:`.functional_map.bijective_zoomout`). ``False`` gives the plain
+    #: ZoomOut of the original method.
+    bijective: bool = True
+    #: Weight of the bijectivity term of the bijective ZoomOut.
+    bijective_weight: float = 1.0
 
     # --- descriptors --------------------------------------------------------
     #: Number of energy scales of the Wave Kernel Signature / Map.

@@ -11,7 +11,10 @@ Usage, from the repository root::
 
 Every stage of every run (initial map, restarts, iterations) is saved with
 its unsupervised diagnostics, after every body: an interrupted run continues
-with ``--resume``. ``--report bench.pkl`` re-prints the tables.
+with ``--resume``. ``--report bench.pkl`` re-prints the tables. ``--variants``
+runs only the named variants, ``--cmh`` also runs them with the CMH functions
+in the maps, ``--plain-zoomout`` with the (not bijective) ZoomOut of the
+original method.
 """
 
 import argparse
@@ -21,7 +24,9 @@ import pickle
 
 import numpy as np
 
-from skeleton_transfer.evaluation import ALL_LANDMARKS, Evaluator, completed_targets, report
+from skeleton_transfer.evaluation import (
+    ALL_LANDMARKS, Evaluator, completed_targets, default_variants, report, with_cmh, with_plain_zoomout,
+)  # fmt: skip
 from skeleton_transfer.smpl import SMPLModel
 from skeleton_transfer.synthetic import make_synthetic_target
 
@@ -30,7 +35,9 @@ CONDITIONS = {"nude": (), "shirt": ("shirt",), "skirt": ("skirt",), "shirt+skirt
 
 def run(args):
     model = SMPLModel.from_file(args.smpl)
-    evaluator = Evaluator(model.as_source())
+    variants = [v for v in default_variants() if args.variants is None or v[0] in args.variants]
+    variants += (with_cmh(variants) if args.cmh else []) + (with_plain_zoomout(variants) if args.plain_zoomout else [])
+    evaluator = Evaluator(model.as_source(), variants)
     if args.resume and os.path.exists(args.out):
         with open(args.out, "rb") as f:
             evaluator.runs = pickle.load(f)
@@ -67,6 +74,10 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="benchmark_synthetic.pkl")
     parser.add_argument("--resume", action="store_true", help="skip the runs already saved in --out (only missing variants are run)")
+    parser.add_argument("--variants", nargs="+", help="names of the variants to run (default: all)")
+    parser.add_argument("--cmh", action="store_true", help="also run every variant with the CMH functions in the maps")
+    parser.add_argument("--plain-zoomout", action="store_true",
+                        help="also run every variant with the plain ZoomOut of the original method")
     parser.add_argument("--report", metavar="PKL", help="only report saved results")
     args = parser.parse_args()
     logging.basicConfig(level=logging.ERROR)

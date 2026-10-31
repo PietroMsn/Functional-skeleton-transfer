@@ -25,7 +25,9 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from skeleton_transfer import RegressorConfig, load_smpl_source, load_target, transfer_skeleton
+from skeleton_transfer import (
+    FunctionalMapConfig, RegressorConfig, TransferConfig, load_smpl_source, load_target, transfer_skeleton,
+)  # fmt: skip
 from skeleton_transfer.regressor import regressor_energy
 from skeleton_transfer.spectral import compute_laplace_basis
 
@@ -52,7 +54,9 @@ def run():
     k = 120
     basis_src = compute_laplace_basis(source.vertices, source.faces, 400)
     basis_tgt = compute_laplace_basis(target.vertices, target.faces, 400)
-    result = transfer_skeleton(source, target, basis_src=basis_src)
+    # The plain ZoomOut of the original method
+    config = TransferConfig(functional_map=FunctionalMapConfig(bijective=False))
+    result = transfer_skeleton(source, target, config, basis_src=basis_src)
     return dict(source=source, target=target, result=result, basis_src=basis_src, basis_tgt=basis_tgt, k=k)
 
 

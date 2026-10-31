@@ -5,11 +5,23 @@ import pytest
 
 from skeleton_transfer.config import FunctionalMapConfig, TransferConfig
 from skeleton_transfer.diagnostics import bone_affinity, point_to_bone_distances, transfer_diagnostics
-from skeleton_transfer.functional_map import functional_map_to_p2p, refine_with_features
+from skeleton_transfer.functional_map import (
+    _cuda_device, bijective_zoomout, functional_map_to_p2p, nearest_neighbors, refine_with_features, zoomout,
+)  # fmt: skip
 from skeleton_transfer.spectral import compute_laplace_basis
 
 from .conftest import ellipsoid_mesh
 from .test_skeleton_priors import JOINTS, PARENTS
+
+
+@pytest.mark.skipif(_cuda_device() is None, reason="no CUDA device")
+def test_gpu_nearest_neighbors_match_the_kdtree(monkeypatch):
+    rng = np.random.default_rng(0)
+    points = rng.normal(size=(3000, 120)) / np.arange(1, 121) ** 0.5
+    queries = points[rng.integers(0, 3000, 5000)] + 0.05 * rng.normal(size=(5000, 120))
+    gpu = nearest_neighbors(points, queries)
+    monkeypatch.setenv("SKELETON_TRANSFER_DEVICE", "cpu")
+    np.testing.assert_array_equal(gpu, nearest_neighbors(points, queries))
 
 
 def test_point_to_bone_distances():
@@ -63,6 +75,40 @@ def test_features_steer_the_map():
         features = (weight * vertices, weight * mirrored)
         _, p2p = refine_with_features(identity, evecs, evecs, 20, 5, features)
         assert np.linalg.norm(vertices[p2p] - expected, axis=1).mean() < 0.01
+
+
+def test_cmh_refinement_keeps_the_identity():
+    """With the CMH functions the maps grow by 3 and the identity stays a fixed point."""
+    vertices, faces = ellipsoid_mesh(radii=(1.0, 0.7, 0.5))
+    basis = compute_laplace_basis(vertices, faces, 30)
+    identity = np.arange(len(vertices))
+    cmh = lambda k: basis.functions(k, cmh=True)  # noqa: E731
+    C, p2p = zoomout(identity, cmh, cmh, 10, 30, 10)
+    assert C.shape == (33, 33)
+    np.testing.assert_array_equal(p2p, identity)
+    np.testing.assert_allclose(C, np.eye(33), atol=1e-8)
+    C, p2p = refine_with_features(identity, cmh, cmh, 20, 2)
+    assert C.shape == (23, 23) and np.array_equal(p2p, identity)
+
+
+def test_bijective_zoomout():
+    """The identity is a fixed point; from a noisy map it recovers the identity
+    at least as well as plain ZoomOut, with fewer many-to-one matches."""
+    vertices, faces = ellipsoid_mesh(radii=(1.0, 0.7, 0.5))
+    basis = compute_laplace_basis(vertices, faces, 40)
+    identity = np.arange(len(vertices))
+    C, p2p = bijective_zoomout(identity, basis.evecs, basis.evecs, 10, 40, 10)
+    np.testing.assert_array_equal(p2p, identity)
+    np.testing.assert_allclose(C, np.eye(40), atol=1e-8)
+    rng = np.random.default_rng(0)
+    noisy = identity.copy()
+    moved = rng.random(len(noisy)) < 0.3
+    noisy[moved] = rng.integers(0, len(noisy), moved.sum())
+    _, plain = zoomout(noisy, basis.evecs, basis.evecs, 10, 40, 10)
+    _, bij = bijective_zoomout(noisy, basis.evecs, basis.evecs, 10, 40, 10)
+    error = lambda p: np.linalg.norm(vertices[p] - vertices, axis=1).mean()  # noqa: E731
+    assert error(bij) <= error(plain) + 1e-3
+    assert len(np.unique(bij)) >= len(np.unique(plain))
 
 
 def test_restart_sizes_validated():

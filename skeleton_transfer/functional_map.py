@@ -21,10 +21,15 @@ Pipeline (:func:`estimate_functional_map`)
    projection of the map onto the orthogonal matrices;
 4. ZoomOut (Melzi et al. 2019): iteratively grow the map to ``n_eigs_final``
    by alternating point-to-point and functional representations.
+
+With ``cfg.cmh`` every map of size ``k`` in step 4 (and in the later
+refinements) uses the first ``k`` eigenfunctions followed by the 3 CMH
+functions of each shape, so ``C`` is ``(k + 3, k + 3)``.
 """
 
+import os
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -52,14 +57,44 @@ class FunctionalMapResult:
     p2p: np.ndarray
 
 
+#: Queries per block of the GPU search (a block of distances is
+#: ``GPU_BLOCK x n_points`` doubles).
+GPU_BLOCK = 2048
+
+
+def _cuda_device():
+    """The CUDA device, or ``None`` without PyTorch, without a GPU, or with
+    ``SKELETON_TRANSFER_DEVICE=cpu`` in the environment."""
+    if os.environ.get("SKELETON_TRANSFER_DEVICE", "auto").lower() == "cpu":
+        return None
+    try:
+        import torch
+    except ImportError:
+        return None
+    return torch.device("cuda") if torch.cuda.is_available() else None
+
+
 def nearest_neighbors(points: np.ndarray, queries: np.ndarray) -> np.ndarray:
     """Index of the nearest row of ``points`` for each row of ``queries``.
 
-    Exact k-d tree search. (The original code used FLANN, which is
-    approximate; any NN backend can be plugged in here.)
+    Exact search: brute force in double precision on the GPU when PyTorch
+    finds one (see :func:`_cuda_device`), otherwise a k-d tree. In the
+    100-200 dimensions of the spectral embeddings the k-d tree degenerates
+    to an exhaustive search with a large overhead, so the GPU is much faster.
+    (The original code used FLANN, which is approximate.)
     """
-    _, idx = cKDTree(points).query(queries, k=1)
-    return idx
+    device = _cuda_device()
+    if device is None:
+        _, idx = cKDTree(points).query(queries, k=1)
+        return idx
+    import torch
+
+    P = torch.as_tensor(np.ascontiguousarray(points, dtype=np.float64), device=device)
+    Q = torch.as_tensor(np.ascontiguousarray(queries, dtype=np.float64), device=device)
+    norms = (P * P).sum(dim=1)
+    idx = torch.cat([torch.argmin(norms - 2 * Q[s : s + GPU_BLOCK] @ P.T, dim=1)
+                     for s in range(0, len(Q), GPU_BLOCK)])  # fmt: skip
+    return idx.cpu().numpy()
 
 
 def p2p_to_functional_map(
@@ -67,6 +102,17 @@ def p2p_to_functional_map(
 ) -> np.ndarray:
     """Least-squares functional map ``C`` such that ``evecs_src C ~= evecs_tgt[p2p]``."""
     return np.linalg.pinv(evecs_src[:, :k]) @ evecs_tgt[p2p, :k]
+
+
+#: Basis functions of a shape: either the eigenfunctions (sliced to the first
+#: ``k`` columns) or a function returning the basis of size ``k``, e.g.
+#: ``lambda k: basis.functions(k, cmh=True)``.
+Basis = Union[np.ndarray, Callable[[int], np.ndarray]]
+
+
+def basis_functions(basis: Basis, k: int) -> np.ndarray:
+    """The basis of size ``k`` (see :data:`Basis`)."""
+    return basis(k) if callable(basis) else basis[:, :k]
 
 
 #: Optional pair of per-vertex features ``(F_src, F_tgt)`` appended to the
@@ -199,8 +245,8 @@ def icp_refine(
 
 def zoomout(
     p2p: np.ndarray,
-    evecs_src: np.ndarray,
-    evecs_tgt: np.ndarray,
+    evecs_src: Basis,
+    evecs_tgt: Basis,
     k_init: int,
     k_final: int,
     step: int,
@@ -214,20 +260,68 @@ def zoomout(
 
     Returns
     -------
-    C : (k_final, k_final) functional map
+    C : (k_final, k_final) functional map (larger if the bases add functions)
     p2p : point-to-point map used to compute ``C``
     """
-    C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k_init)
+    phi_src, phi_tgt = basis_functions(evecs_src, k_init), basis_functions(evecs_tgt, k_init)
+    C = p2p_to_functional_map(p2p, phi_src, phi_tgt, phi_src.shape[1])
     for k in range(k_init, k_final, step):
-        p2p = functional_map_to_p2p(C, evecs_src[:, :k], evecs_tgt[:, :k], landmarks=landmarks)
-        C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k + step)
+        p2p = functional_map_to_p2p(C, phi_src, phi_tgt, landmarks=landmarks)
+        phi_src, phi_tgt = basis_functions(evecs_src, k + step), basis_functions(evecs_tgt, k + step)
+        C = p2p_to_functional_map(p2p, phi_src, phi_tgt, phi_src.shape[1])
+    return C, p2p
+
+
+def bijective_zoomout(
+    p2p: np.ndarray,
+    evecs_src: Basis,
+    evecs_tgt: Basis,
+    k_init: int,
+    k_final: int,
+    step: int,
+    weight: float = 1.0,
+    landmarks: Landmarks = None,
+):
+    """ZoomOut on both directions coupled by a bijectivity term.
+
+    In the spirit of the discrete optimization of Ren et al. [2021] (as in
+    pyCMH): besides the map ``C`` (target -> source coefficients) of the
+    source -> target vertex map, it refines a map ``C_rev`` (source -> target
+    coefficients) of a target -> source vertex map. Each vertex map is the
+    nearest neighbour in embeddings that ask both for ``Phi_src ~ Phi_tgt C^T``
+    and for consistency with the other direction (``C_rev C ~ I``), which
+    reduces the many-to-one matches of plain ZoomOut. The reverse map starts
+    from ``C^T`` (the inverse of an orthogonal map).
+
+    Returns
+    -------
+    C : (k_final, k_final) functional map (larger if the bases add functions)
+    p2p : point-to-point map (source -> target) used to compute ``C``
+    """
+    phi_src, phi_tgt = basis_functions(evecs_src, k_init), basis_functions(evecs_tgt, k_init)
+    C = p2p_to_functional_map(p2p, phi_src, phi_tgt, phi_src.shape[1])
+    q2p = nearest_neighbors(phi_src @ C, phi_tgt)  # target -> source
+    if landmarks is not None:
+        q2p[landmarks[1]] = landmarks[0]
+    C_rev = p2p_to_functional_map(q2p, phi_tgt, phi_src, phi_tgt.shape[1])
+    for k in range(k_init, k_final, step):
+        p2p = nearest_neighbors(np.hstack((phi_tgt @ C.T, weight * phi_tgt)),
+                                np.hstack((phi_src, weight * phi_src @ C_rev.T)))  # fmt: skip
+        q2p = nearest_neighbors(np.hstack((phi_src @ C_rev.T, weight * phi_src)),
+                                np.hstack((phi_tgt, weight * phi_tgt @ C.T)))  # fmt: skip
+        if landmarks is not None:
+            p2p[landmarks[0]] = landmarks[1]
+            q2p[landmarks[1]] = landmarks[0]
+        phi_src, phi_tgt = basis_functions(evecs_src, k + step), basis_functions(evecs_tgt, k + step)
+        C = p2p_to_functional_map(p2p, phi_src, phi_tgt, phi_src.shape[1])
+        C_rev = p2p_to_functional_map(q2p, phi_tgt, phi_src, phi_tgt.shape[1])
     return C, p2p
 
 
 def refine_with_features(
     p2p: np.ndarray,
-    evecs_src: np.ndarray,
-    evecs_tgt: np.ndarray,
+    evecs_src: Basis,
+    evecs_tgt: Basis,
     k: int,
     n_iterations: int,
     features: Features = None,
@@ -241,19 +335,26 @@ def refine_with_features(
 
     Returns
     -------
-    C : (k, k) functional map
+    C : (k, k) functional map (larger if the bases add functions)
     p2p : point-to-point map (source -> target)
     """
-    C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k)
+    phi_src, phi_tgt = basis_functions(evecs_src, k), basis_functions(evecs_tgt, k)
+    C = p2p_to_functional_map(p2p, phi_src, phi_tgt, phi_src.shape[1])
     for _ in range(n_iterations):
-        p2p = functional_map_to_p2p(C, evecs_src[:, :k], evecs_tgt[:, :k], features, landmarks)
-        C = p2p_to_functional_map(p2p, evecs_src, evecs_tgt, k)
+        p2p = functional_map_to_p2p(C, phi_src, phi_tgt, features, landmarks)
+        C = p2p_to_functional_map(p2p, phi_src, phi_tgt, phi_src.shape[1])
     return C, p2p
 
 
 # ----------------------------------------------------------------------------
 # Full pipeline
 # ----------------------------------------------------------------------------
+
+
+def cmh_basis(basis: LaplaceBasis, cfg: FunctionalMapConfig) -> Basis:
+    """Basis of the ZoomOut and of the later refinements: the eigenfunctions,
+    extended with the CMH functions if ``cfg.cmh``."""
+    return (lambda k: basis.functions(k, cmh=True)) if cfg.cmh else basis.evecs
 
 
 def estimate_functional_map(
@@ -300,7 +401,9 @@ def estimate_functional_map(
     p2p = icp_refine(C, basis_src.evecs, basis_tgt.evecs, cfg.n_icp_iterations, forced)
 
     # 4) ZoomOut up to the final size
-    C, p2p = zoomout(
-        p2p, basis_src.evecs, basis_tgt.evecs, k, cfg.n_eigs_final, cfg.zoomout_step, forced
-    )
+    bases = cmh_basis(basis_src, cfg), cmh_basis(basis_tgt, cfg)
+    if cfg.bijective:
+        C, p2p = bijective_zoomout(p2p, *bases, k, cfg.n_eigs_final, cfg.zoomout_step, cfg.bijective_weight, forced)
+    else:
+        C, p2p = zoomout(p2p, *bases, k, cfg.n_eigs_final, cfg.zoomout_step, forced)
     return FunctionalMapResult(C=C, p2p=p2p)
