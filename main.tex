@@ -221,7 +221,7 @@ skeleton-guided refinement below, and the one with the highest final segment
 consistency is kept (\emph{refined restarts}, Sec.~\ref{sec:exp_real}).
 
 \paragraph{Bijective ZoomOut.}
-% code: feature/target-skeleton-priors, working tree after fa403c7 (not yet committed),
+% code: feature/target-skeleton-priors, commit 27a49c0,
 % skeleton_transfer/functional_map.py:bijective_zoomout
 At every size, ZoomOut recovers the point-to-point map $T:\M\to\N$ by
 matching each source vertex independently to its nearest neighbour in the
@@ -503,7 +503,7 @@ iterations gives 49.4\,mm with 5.4 iterations on average instead of 7.7. We
 adopt this rule in all the following experiments.
 
 \paragraph{Bijective ZoomOut.}
-% code: working tree after fa403c7 (not yet committed); plain: samples/bench_cmh_*.pkl,
+% code: commit 27a49c0; plain: samples/bench_cmh_*.pkl,
 % bijective: samples/bench_bijdef_*.pkl (tools/benchmark_synthetic.py -n 6, seed 0)
 The experiments above use the plain ZoomOut of the original method.
 Table~\ref{tab:bijective_synth} compares it with the bijective ZoomOut of
@@ -542,7 +542,7 @@ the final pipeline.
 % tools/datasets/select_frames.py --keep samples/4ddress_eval -> samples/4ddress_eval_full,
 % tools/evaluate_scans.py --shard (provenance in manifest.csv); per-subject, plausibility
 % and restart statistics: tools/analyze_scans.py (fa403c7).
-% Bijective ZoomOut (default): working tree after fa403c7 (not yet committed),
+% Bijective ZoomOut (default): commit 27a49c0,
 % samples/eval_bijdef_s*.pkl; plain ZoomOut: samples/eval_4ddress_eval*_s*.pkl (fa403c7)
 
 We evaluate on 4D-DRESS~\citep{wang2024dress}, which provides textured scans

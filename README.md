@@ -26,7 +26,7 @@ latexmk -pdf main.tex
 | 2026-10-28 | `f0d7efc` + `--shard` (feature/target-skeleton-priors) | real scans extended to 88 frames of ten subjects with varied poses (Tab. 5), refined restarts validated on the 63 new scans |
 | 2026-10-28 | `05187bc` (feature/target-skeleton-priors) | comparison with an optimization-based SMPL fitting |
 | 2026-10-28 | `05187bc` (feature/target-skeleton-priors) | real scans extended to 185 frames of all nineteen downloaded subjects (Tab. 5, the 88 previous frames kept), statistics and SMPL fitting comparison updated |
-| 2026-10-31 | after `fa403c7` (feature/target-skeleton-priors, not yet committed) | bijective ZoomOut in the method and as default; plain vs bijective on the synthetic benchmark (new table); real scans re-run with the bijective ZoomOut (Tab. 6, plain ZoomOut kept as last row), statistics and SMPL fitting comparison updated; GPU nearest-neighbour search |
+| 2026-10-31 | `27a49c0` (feature/target-skeleton-priors) | bijective ZoomOut in the method and as default; plain vs bijective on the synthetic benchmark (new table); real scans re-run with the bijective ZoomOut (Tab. 6, plain ZoomOut kept as last row), statistics and SMPL fitting comparison updated; GPU nearest-neighbour search |
 
 ## Reproducing the numbers
 
@@ -47,7 +47,7 @@ latexmk -pdf main.tex
   `--compare`. Per-subject, plausibility and restart statistics:
   `tools/analyze_scans.py <eval pickles> --samples samples/4ddress --subset
   samples/4ddress_eval` (commit `fa403c7`). With the bijective ZoomOut (default
-  after `fa403c7`): the same commands write `samples/eval_bijdef_s*.pkl`; the
+  since `27a49c0`): the same commands write `samples/eval_bijdef_s*.pkl`; the
   plain ZoomOut is the variant suffix `, plain ZoomOut` of `--variants`.
 - Plain vs bijective ZoomOut on the synthetic benchmark: `tools/benchmark_synthetic.py
   -n 6 --conditions <c>` per condition (seed 0), with `--plain-zoomout` for the
