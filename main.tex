@@ -203,7 +203,7 @@ proportions (Sec.~\ref{sec:exp_failures}).
 
 Large errors are failures of the correspondence, which no correction of the
 skeleton can repair (Sec.~\ref{sec:exp_failures}). We make the correspondence
-more robust with three complementary components.
+more robust with four complementary components.
 
 \paragraph{Limb landmarks.} Besides the seven landmarks of
 \citet{musoni2021functional} (head, hands, feet, front and back of the torso)
@@ -219,6 +219,26 @@ $\max_b |\log \rho_b|$, stopping as soon as one is plausible. Alternatively,
 every candidate (the initial map and the three restarts) is refined with the
 skeleton-guided refinement below, and the one with the highest final segment
 consistency is kept (\emph{refined restarts}, Sec.~\ref{sec:exp_real}).
+
+\paragraph{Bijective ZoomOut.}
+% code: feature/target-skeleton-priors, working tree after fa403c7 (not yet committed),
+% skeleton_transfer/functional_map.py:bijective_zoomout
+At every size, ZoomOut recovers the point-to-point map $T:\M\to\N$ by
+matching each source vertex independently to its nearest neighbour in the
+embedding $\Psi\C^\top$, so that many source vertices can collapse onto the
+same region of the target. In the spirit of the discrete optimization
+of \citet{ren2021discrete}, we refine together a map $T':\N\to\M$ in the
+opposite direction, with its functional map $\C'$ (from source to target
+coefficients), and recover each map from embeddings that also ask for
+consistency with the other direction ($\C'\C \approx \mathbf{I}$):
+\begin{align}
+  T(i)  &= \operatorname*{arg\,min}_{j} \;\big\|\Phi_i - (\Psi\C^\top)_j\big\|^2 + w_b^2 \big\|(\Phi\C'^\top)_i - \Psi_j\big\|^2 , \\
+  T'(j) &= \operatorname*{arg\,min}_{i} \;\big\|\Psi_j - (\Phi\C'^\top)_i\big\|^2 + w_b^2 \big\|(\Psi\C^\top)_j - \Phi_i\big\|^2 ,
+\end{align}
+with $w_b = 1$; both functional maps are then re-fitted to their
+point-to-point maps at the next size. $T'$ starts from the map induced by
+$\C^\top$ after ICP (the inverse of an orthogonal map). Only ZoomOut is
+replaced: the skeleton-guided refinement below keeps one direction.
 
 \paragraph{Skeleton-guided refinement.} The transferred skeleton carries
 extrinsic, pose-aware information that intrinsic descriptors lack: which
@@ -482,6 +502,38 @@ consistency has not improved by more than $0.002$ for two consecutive
 iterations gives 49.4\,mm with 5.4 iterations on average instead of 7.7. We
 adopt this rule in all the following experiments.
 
+\paragraph{Bijective ZoomOut.}
+% code: working tree after fa403c7 (not yet committed); plain: samples/bench_cmh_*.pkl,
+% bijective: samples/bench_bijdef_*.pkl (tools/benchmark_synthetic.py -n 6, seed 0)
+The experiments above use the plain ZoomOut of the original method.
+Table~\ref{tab:bijective_synth} compares it with the bijective ZoomOut of
+Sec.~\ref{sec:robust} on the same bodies and code. The bijective ZoomOut
+improves the nude bodies and the shirt (from 56.4 to 50.9\,mm with the
+complete pipeline) but worsens the skirts (from 48.7 to 56.4\,mm and from 71.9
+to 79.5\,mm), without changing the failures. A plausible reason is that the
+bijectivity term asks every source vertex to be reached, while the skirt has no
+counterpart of the separated legs of the source. On real scans the balance is
+the opposite (Sec.~\ref{sec:exp_real}), and we adopt the bijective ZoomOut in
+the final pipeline.
+
+\begin{table}[t]
+  \centering
+  \caption{Mean (median) joint error in mm on the synthetic benchmark (6 bodies
+  per condition) with the plain and the bijective ZoomOut.}
+  \label{tab:bijective_synth}
+  \small
+  \begin{tabular}{lccccr}
+    \toprule
+    & nude & shirt & skirt & shirt + skirt & failures \\
+    \midrule
+    Baseline, plain             & 23.0 (22.8) & 55.0 (34.8) & 118.8 (81.0) & 227.9 (182.7) & 8/24 \\
+    Baseline, bijective         & 19.5 (18.9) & 50.4 (33.5) & 127.6 (91.1) & 238.2 (158.5) & 8/24 \\
+    All three + priors, plain     & 19.8 (17.5) & 56.4 (40.3) &  48.7 (53.0) &  71.9 (73.0)  & 2/24 \\
+    All three + priors, bijective & 18.3 (16.5) & 50.9 (35.3) &  56.4 (52.7) &  79.5 (73.3)  & 2/24 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 % ----------------------------------------------------------------------------
 \subsection{Real scans of clothed people}
 \label{sec:exp_real}
@@ -489,7 +541,9 @@ adopt this rule in all the following experiments.
 % code: feature/target-skeleton-priors 05187bc, tools/datasets/dress4d.py (all 28 archives),
 % tools/datasets/select_frames.py --keep samples/4ddress_eval -> samples/4ddress_eval_full,
 % tools/evaluate_scans.py --shard (provenance in manifest.csv); per-subject, plausibility
-% and restart statistics: tools/analyze_scans.py (fa403c7)
+% and restart statistics: tools/analyze_scans.py (fa403c7).
+% Bijective ZoomOut (default): working tree after fa403c7 (not yet committed),
+% samples/eval_bijdef_s*.pkl; plain ZoomOut: samples/eval_4ddress_eval*_s*.pkl (fa403c7)
 
 We evaluate on 4D-DRESS~\citep{wang2024dress}, which provides textured scans
 of real people in their own clothes together with a registered SMPL body. We
@@ -512,67 +566,78 @@ Sec.~\ref{sec:exp_robust}.
   \centering
   \caption{Mean (median) joint error in mm of the spectral transfer on 185
   scans of 4D-DRESS (nineteen subjects, one frame per sequence); failures are
-  transfers with an error above 10\,cm.}
+  transfers with an error above 10\,cm. All variants use the bijective
+  ZoomOut, except the last row.}
   \label{tab:real}
   \small
   \begin{tabular}{lccr}
     \toprule
     & inner (149) & outer (36) & failures \\
     \midrule
-    Baseline                 & 91.5 (40.5) & 109.3 (50.1) & 56/185 \\
-    + limb landmarks         & 75.7 (37.6) &  98.2 (51.4) & 45/185 \\
-    + restarts               & 89.3 (38.7) &  98.0 (48.4) & 50/185 \\
-    + guided refinement      & 83.8 (37.4) & 104.8 (48.7) & 53/185 \\
-    All three                & 57.7 (35.3) &  70.8 (42.5) & 30/185 \\
-    All three + priors       & 54.1 (33.3) &  65.8 (41.1) & 28/185 \\
-    \quad refined restarts   & \textbf{44.9} (\textbf{31.6}) & \textbf{46.7} (\textbf{36.4}) & \textbf{14/185} \\
+    Baseline                 & 86.5 (38.1) & 108.6 (46.5) & 54/185 \\
+    + limb landmarks         & 71.3 (35.7) &  95.1 (50.9) & 40/185 \\
+    + restarts               & 84.2 (36.9) & 102.7 (46.5) & 47/185 \\
+    + guided refinement      & 80.0 (37.1) & 102.9 (47.6) & 51/185 \\
+    All three                & 57.0 (34.6) &  64.4 (42.8) & 25/185 \\
+    All three + priors       & 53.7 (32.2) &  61.8 (40.5) & 24/185 \\
+    \quad refined restarts   & \textbf{40.0} (\textbf{31.0}) & 47.5 (37.0) & \textbf{9/185} \\
+    \midrule
+    \quad plain ZoomOut      & 44.9 (31.6) & \textbf{46.7} (\textbf{36.4}) & 14/185 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 The real scans confirm the synthetic findings. The complete pipeline with
-refined restarts reduces the mean error by 51\% with inner garments (from
-91.5 to 44.9\,mm) and by 57\% with outer garments (from 109.3 to 46.7\,mm), and
-the failures from 56 to 14 out of 185. No component alone is sufficient: the
-limb landmarks give the largest single gain on the inner garments, while on
-the outer ones the limb landmarks and the restarts give the same gain (98.2
-and 98.0\,mm); only their combination nearly halves the failures, and the
-refined restarts halve them again.
-The median, which ignores the failures, improves less (from 40.5 to 31.6\,mm
-and from 50.1 to 36.4\,mm): the residual error of the successful transfers is
+refined restarts reduces the mean error by 54\% with inner garments (from
+86.5 to 40.0\,mm) and by 56\% with outer garments (from 108.6 to 47.5\,mm), and
+the failures from 54 to 9 out of 185. No component alone is sufficient: the
+limb landmarks give the largest single gain; only the combination of the three
+components more than halves the failures, and the refined restarts reduce
+them from 24 to 9.
+The median, which ignores the failures, improves less (from 38.1 to 31.0\,mm
+and from 46.5 to 37.0\,mm): the residual error of the successful transfers is
 due to the garments themselves, which displace the surface by several
-centimetres. The gain is largest on the legs (from 109.8 to 55.8\,mm with
-inner and from 145.7 to 42.5\,mm with outer garments) and on the arms (from
-96.4 to 43.1 and from 109.7 to 48.0\,mm), and smaller on the spine (from 59.1
-to 33.2 and from 60.2 to 50.4\,mm). Unlike in the synthetic benchmark, the
-least accurate joints are the ankles (66--71\,mm) and the feet (54--56\,mm),
-covered by trousers and shoes, rather than the knees.
+centimetres. The gain is largest on the legs (from 101.5 to 46.6\,mm with
+inner and from 143.3 to 39.9\,mm with outer garments) and on the arms (from
+92.3 to 40.0 and from 108.0 to 52.8\,mm), and smaller on the spine (from 56.7
+to 31.1 and from 63.2 to 48.8\,mm). Unlike in the synthetic benchmark, the
+least accurate joints are the ankles (50--61\,mm), covered by trousers and
+shoes, and the hands and wrists (48--58\,mm), rather than the knees.
+
+\paragraph{Bijective ZoomOut.} Unlike on the synthetic skirts, the bijective
+ZoomOut helps on the real scans (last two rows of Tab.~\ref{tab:real}). With
+the complete pipeline it reduces the mean error from 45.2 to 41.4\,mm and the
+failures from 14 to 9 (six recovered, one new; Wilcoxon signed-rank test on the
+185 paired transfers, $p = 0.001$); the error with outer garments slightly
+increases (from 46.7 to 47.5\,mm). With the baseline it reduces the mean error
+from 95.0 to 90.8\,mm and improves 140 of the 185 transfers ($p < 10^{-9}$),
+at every level of error.
 
 The difficulty varies considerably across subjects. The baseline fails on six
-of the seven scans of one subject (mean 175.0\,mm) and on six of the nine of
-another (209.0\,mm), which the complete pipeline brings to 43.4\,mm without
-failures and to 69.1\,mm with one failure, while three subjects account for
-six of the 14 remaining failures. The pipeline is similarly accurate on female
-and male subjects (43.0 and 47.5\,mm), as is the baseline (99.4 and
-90.5\,mm). The benchmark grew in three steps: 25 scans of two subjects
+of the seven scans of one subject (mean 152.1\,mm) and on five of the nine of
+another (198.1\,mm), which the complete pipeline brings to 42.8\,mm without
+failures and to 55.6\,mm with one failure; the nine remaining failures are
+spread over eight subjects. The pipeline is similarly accurate on female
+and male subjects (39.2 and 43.8\,mm), as is the baseline (95.6 and
+85.9\,mm). The benchmark grew in three steps: 25 scans of two subjects
 (middle frame of each sequence), 88 scans of ten subjects, and the 185 scans
 of Tab.~\ref{tab:real}. The 97 scans of the nine subjects added last are
-harder than the first 88 (49.5 against 40.5\,mm with the complete pipeline,
-110.4 against 78.0\,mm with the baseline): the conclusions of the comparison,
+harder than the first 88 (45.1 against 37.5\,mm with the complete pipeline,
+106.6 against 73.3\,mm with the baseline): the conclusions of the comparison,
 however, did not change.
 
-\paragraph{Diagnostics and failures.} Over the 6707 intermediate results the
-diagnostics are close to each other: the coverage, the symmetry, the
-orthogonality and the segment consistency are about equally correlated with
-the error (Spearman $\rho$ from 0.84 to 0.86, 0.83 for the bone ratios and
-0.78 for the spectral--pointwise gap), and the symmetry, the orthogonality and
-the coverage are the best detectors of failures (AUC 0.93, against 0.92 for
-the segment consistency and 0.91 for the bone ratios). The plausibility
+\paragraph{Diagnostics and failures.} Over the 6657 intermediate results the
+diagnostics are close to each other: all but the spectral--pointwise gap are
+about equally correlated with the error (Spearman $\rho$ from 0.82 for the
+bone ratios and the coverage to 0.85 for the orthogonality, 0.73 for the gap),
+and the symmetry, the orthogonality, the coverage and the segment consistency
+detect the failures equally well (AUC 0.92, against 0.91 for the bone ratios
+and 0.88 for the gap). The plausibility
 check is reliable for the variants without the guided refinement (it flags
-44 of the 50 failures with restarts, with nine false alarms), but less so
+44 of the 47 failures with restarts, with ten false alarms), but less so
 after the refinement, which can produce a skeleton with plausible
-proportions on a wrong correspondence (7 of the 14 final failures are
-flagged). With the stopping rule the refinement uses 4.9 iterations on
+proportions on a wrong correspondence (4 of the 9 final failures are
+flagged). With the stopping rule the refinement uses 4.8 iterations on
 average.
 
 \paragraph{Selecting the restart.} Choosing the restart with the segment
@@ -589,10 +654,10 @@ consistency. We selected this rule on the 9 synthetic and 4 real targets of
 the first benchmark where the restarts are triggered, where it reduces the
 final error from 73.7 to 70.3\,mm and from 87.5 to 66.1\,mm. On the 185 scans
 of Tab.~\ref{tab:real}, which include 160 scans not used for this choice, the
-restarts are triggered on 62 scans; on these the refined restarts reduce the
-mean error from 105.8 to 72.6\,mm and the failures from 27 to 13, improving 39
-of the 62 transfers and worsening 9 (by more than 1\,mm). An oracle choosing
-the best candidate would reach 58.4\,mm with 6 failures, so the choice of the
+restarts are triggered on 65 scans; on these the refined restarts reduce the
+mean error from 101.3 to 62.0\,mm and the failures from 24 to 9, improving 36
+of the 65 transfers and worsening 5 (by more than 1\,mm). An oracle choosing
+the best candidate would reach 54.2\,mm with 6 failures, so the choice of the
 candidate, not
 the candidates themselves, is the main source of the remaining failures. The
 cost is one refinement per candidate, i.e.\ about four times the time of the
@@ -610,10 +675,12 @@ robust (Geman--McClure) scan-to-body term, a body-to-scan term that is
 stronger where the body leaves the scan, and L2 priors on pose and shape. On
 an unclothed posed SMPL body it recovers the joints within 6\,mm. On the 185
 scans it reaches a mean (median) error of 17.5 (15.6)\,mm, 17.2\,mm with inner
-and 18.7\,mm with outer garments, with one failure, against 45.2 (32.8)\,mm and
-14 failures of the complete transfer, which is more accurate on only five of
-the 185 scans; the fit also takes 62\,s per scan against about 400\,s
-(measured on the first 88 scans, on an otherwise idle machine). This
+and 18.7\,mm with outer garments, with one failure, against 41.4 (32.2)\,mm and
+9 failures of the complete transfer, which is more accurate on only four of
+the 185 scans. The fit takes 62\,s per scan on the CPU; the transfer took
+about 400\,s on the CPU (measured on the first 88 scans, on an otherwise idle
+machine, before the bijective ZoomOut) and about 60\,s with the
+nearest-neighbour searches of the maps on a GPU, which give the same maps. This
 setting favours the fit by construction: the ground truth is itself a SMPL
 registration, so the fitted model, its joint regressor and its kinematic tree
 are those of the ground truth. The comparison shows, however, that on humans
