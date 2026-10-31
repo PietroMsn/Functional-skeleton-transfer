@@ -219,6 +219,21 @@ $\max_b |\log \rho_b|$, stopping as soon as one is plausible. Alternatively,
 every candidate (the initial map and the three restarts) is refined with the
 skeleton-guided refinement below, and the one with the highest final segment
 consistency is kept (\emph{refined restarts}, Sec.~\ref{sec:exp_real}).
+Often no candidate is right everywhere, while each limb is right in some
+candidate. The \emph{per-chain restarts} therefore assemble the skeleton from
+the refined candidates. The skeleton is split into its unbranched kinematic
+chains, each starting at the root or at a child of a branching joint (for
+SMPL the root, the legs, the spine, the neck and the arms from the collars).
+The chain of the root is taken from the candidate kept by the refined
+restarts, and every other chain from the candidate that ranks best on the sum
+of two ranks: the segment consistency restricted to the source vertices of
+the chain, and the agreement of the distances between the chain joints and
+the target landmarks with the same distances on the source, after removing
+the global scale. A chain placed on the wrong limb is far from the landmarks
+of its own limb. The rule only uses the hierarchy of the skeleton and the
+landmarks, so it applies to any skeleton.
+% code: feature/target-skeleton-priors, working tree after 27a49c0 (not yet committed),
+% restart_selection="chains", skeleton_transfer/diagnostics.py:kinematic_chains, chain_scores
 
 \paragraph{Bijective ZoomOut.}
 % code: feature/target-skeleton-priors, commit 27a49c0,
@@ -567,7 +582,8 @@ Sec.~\ref{sec:exp_robust}.
   \caption{Mean (median) joint error in mm of the spectral transfer on 185
   scans of 4D-DRESS (nineteen subjects, one frame per sequence); failures are
   transfers with an error above 10\,cm. All variants use the bijective
-  ZoomOut, except the last row.}
+  ZoomOut, except the last row (complete pipeline with refined restarts and
+  the plain ZoomOut).}
   \label{tab:real}
   \small
   \begin{tabular}{lccr}
@@ -580,9 +596,10 @@ Sec.~\ref{sec:exp_robust}.
     + guided refinement      & 80.0 (37.1) & 102.9 (47.6) & 51/185 \\
     All three                & 57.0 (34.6) &  64.4 (42.8) & 25/185 \\
     All three + priors       & 53.7 (32.2) &  61.8 (40.5) & 24/185 \\
-    \quad refined restarts   & \textbf{40.0} (\textbf{31.0}) & 47.5 (37.0) & \textbf{9/185} \\
+    \quad refined restarts   & 40.0 (31.0) & 47.5 (37.0) & 9/185 \\
+    \quad per-chain restarts & \textbf{38.3} (\textbf{31.0}) & \textbf{40.7} (\textbf{35.6}) & \textbf{7/185} \\
     \midrule
-    \quad plain ZoomOut      & 44.9 (31.6) & \textbf{46.7} (\textbf{36.4}) & 14/185 \\
+    \quad plain ZoomOut      & 44.9 (31.6) & 46.7 (36.4) & 14/185 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -663,6 +680,40 @@ the candidates themselves, is the main source of the remaining failures. The
 cost is one refinement per candidate, i.e.\ about four times the time of the
 complete pipeline on the triggered targets only.
 
+\paragraph{Per-chain restarts.} No other whole-candidate rule closes this gap.
+On the candidates of the 65 triggered scans we tested, besides the
+diagnostics above, the round-trip error of the map induced by $\C$, the
+fraction of torn source edges, the depth of the joints under the surface
+compared with the source, and joint-wise fusions of the candidates (median,
+medoid): none is better than the segment consistency (63.9\,mm and 10
+failures before the priors; the best combination of two or three scores,
+chosen among 220, gives 59.1\,mm with the same number of failures, a gain we
+attribute to the selection itself). Choosing each chain separately has a
+much larger margin: an oracle choosing the best candidate per chain reaches
+45.0\,mm with 4 failures, against 54.2\,mm with 6 for the whole-candidate
+oracle. The landmark agreement is the per-chain signal most correlated with
+the error of the chain (Spearman $\rho = 0.57$ among the candidates of a
+chain, 0.54 for the chain segment consistency). We selected the per-chain
+rule among six signals and a few of their combinations on these 65 scans,
+and validated it on 48 new synthetic bodies (twelve per condition), where the
+restarts are triggered on 19: there the per-chain choice reduces the error
+before the priors from 77.7 to 63.5\,mm and the failures from 5 to 1.
+In the complete runs (Tab.~\ref{tab:real}) the per-chain restarts reduce the
+mean error from 41.4 to 38.8\,mm (median from 32.2 to 31.6\,mm) and the
+failures from 9 to 7 (three recovered, one new). They improve 35 transfers
+and worsen 16 ($p < 0.001$ on the 57 transfers that change), and on the 65
+triggered scans they reach 54.4\,mm, as the whole-candidate oracle. The gain
+is largest with outer garments (from 47.5 to 40.7\,mm); 12 of the 19 subjects
+improve and 3 get worse. On the synthetic benchmark (six bodies per
+condition) the mean error goes from 49.8 to 45.8\,mm and the failures from 2
+to 1, mostly with shirt and skirt (from 88.9 to 76.1\,mm), with no change on
+the nude bodies. The other statistics of this section refer to the refined
+restarts.
+% per-chain: samples/eval_chains_s*.pkl, samples/bench_chains_*.pkl (variant "all + priors,
+% per-chain restarts" added with --resume to copies of eval_bijdef / bench_bijdef);
+% candidate analysis: maps of every candidate re-computed on the 65 real and 19 synthetic
+% triggered targets (scratch scripts, not in the repository)
+
 \paragraph{Comparison with SMPL fitting.}
 % code: skeleton_transfer/smpl_fitting.py, tools/fit_smpl_baseline.py (feature/target-skeleton-priors 05187bc)
 When the template is SMPL, the direct alternative is to register the
@@ -676,8 +727,9 @@ stronger where the body leaves the scan, and L2 priors on pose and shape. On
 an unclothed posed SMPL body it recovers the joints within 6\,mm. On the 185
 scans it reaches a mean (median) error of 17.5 (15.6)\,mm, 17.2\,mm with inner
 and 18.7\,mm with outer garments, with one failure, against 41.4 (32.2)\,mm and
-9 failures of the complete transfer, which is more accurate on only four of
-the 185 scans. The fit takes 62\,s per scan on the CPU; the transfer took
+9 failures of the complete transfer with refined restarts, which is more
+accurate on only four of the 185 scans (38.8 (31.6)\,mm, 7 failures and five
+scans with the per-chain restarts). The fit takes 62\,s per scan on the CPU; the transfer took
 about 400\,s on the CPU (measured on the first 88 scans, on an otherwise idle
 machine, before the bijective ZoomOut) and about 60\,s with the
 nearest-neighbour searches of the maps on a GPU, which give the same maps. This
