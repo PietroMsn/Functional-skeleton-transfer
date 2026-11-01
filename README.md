@@ -27,7 +27,7 @@ latexmk -pdf main.tex
 | 2026-10-28 | `05187bc` (feature/target-skeleton-priors) | comparison with an optimization-based SMPL fitting |
 | 2026-10-28 | `05187bc` (feature/target-skeleton-priors) | real scans extended to 185 frames of all nineteen downloaded subjects (Tab. 5, the 88 previous frames kept), statistics and SMPL fitting comparison updated |
 | 2026-10-31 | `27a49c0` (feature/target-skeleton-priors) | bijective ZoomOut in the method and as default; plain vs bijective on the synthetic benchmark (new table); real scans re-run with the bijective ZoomOut (Tab. 6, plain ZoomOut kept as last row), statistics and SMPL fitting comparison updated; GPU nearest-neighbour search |
-| 2026-10-31 | after `27a49c0` (feature/target-skeleton-priors, not yet committed) | per-chain restarts in the method; analysis of the restart choice (whole-candidate scores, fusions, per-chain oracle) and per-chain variant on the real scans (Tab. 6) and the synthetic benchmark; SMPL fitting comparison updated |
+| 2026-10-31 | `d3f1581` (feature/target-skeleton-priors) | per-chain restarts in the method; analysis of the restart choice (whole-candidate scores, fusions, per-chain oracle) and per-chain variant on the real scans (Tab. 6) and the synthetic benchmark; SMPL fitting comparison updated |
 
 ## Reproducing the numbers
 
