@@ -28,8 +28,13 @@ latexmk -pdf main.tex
 | 2026-10-28 | `05187bc` (feature/target-skeleton-priors) | real scans extended to 185 frames of all nineteen downloaded subjects (Tab. 5, the 88 previous frames kept), statistics and SMPL fitting comparison updated |
 | 2026-10-31 | `27a49c0` (feature/target-skeleton-priors) | bijective ZoomOut in the method and as default; plain vs bijective on the synthetic benchmark (new table); real scans re-run with the bijective ZoomOut (Tab. 6, plain ZoomOut kept as last row), statistics and SMPL fitting comparison updated; GPU nearest-neighbour search |
 | 2026-10-31 | `d3f1581` (feature/target-skeleton-priors) | per-chain restarts in the method; analysis of the restart choice (whole-candidate scores, fusions, per-chain oracle) and per-chain variant on the real scans (Tab. 6) and the synthetic benchmark; SMPL fitting comparison updated |
+| 2026-11-01 | after `d3f1581` (loose clothing not yet committed) | loose clothing: curvature-based detection of covered source vertices with a metric neighbourhood, visible-only regressor; oracles, failed partial map, seed-0/seed-1 synthetic table, real scans (Tab. 6) |
 
 ## Reproducing the numbers
+
+- Loose clothing (synthetic table and last real row before the plain ZoomOut):
+  `tools/benchmark_synthetic.py -n 6 [--seed 1]` and `tools/evaluate_scans.py --shard i/7`
+  with the variant "all + priors, per-chain restarts, loose clothing".
 
 - Parity and regressor: `pytest tests/test_parity.py` (needs `data/`), and
   `tools/make_original_reference.py` for the original outputs.

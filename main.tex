@@ -289,6 +289,49 @@ target point that is closest to the same bone, the target bones being placed
 by the transferred skeleton. The latter measures the agreement between the map
 and the skeleton, the quantity that the refinement improves.
 
+% ----------------------------------------------------------------------------
+\subsection{Loose clothing}
+\label{sec:clothing}
+% ----------------------------------------------------------------------------
+% code: feature/target-skeleton-priors (uncommitted), skeleton_transfer/clothing.py,
+% TransferConfig.loose_clothing = LooseClothingConfig()
+
+A skirt or a dress replaces the two legs with a single tube. The source
+vertices of the thighs and knees have no counterpart on the target, and the
+point-to-point map sends them onto the garment, far from the hidden legs; the
+regressor of Eq.~\eqref{eq:transfer}, fitted on all the source vertices, then
+pulls the knees onto the skirt and the hips downwards. We detect the source
+vertices hidden under a loose garment and leave them out of the regressor.
+
+The detection cannot use the skeleton, which is itself wrong under the
+garment. It relies on a simpler observation: a loose garment is much flatter
+than the body part it covers. For every point we estimate the radius of
+curvature $r$ as the median, over the points within a distance $h$, of their
+distance divided by the angle between the two normals (estimated by PCA over
+the same neighbourhood); for a sphere of radius $r$ this gives $r$. The
+neighbourhood is metric, $h = 0.006$ times the total bone length of the
+source skeleton (about 26\,mm on SMPL), scaled on the target by the ratio of
+the sizes of the two shapes. A fixed number of neighbours is not suitable: on
+SMPL, whose mesh is much denser on the hands and the face, it measures the
+curvature of the fingers and the nose, which a scan does not resolve, and the
+hands and the head of every scan were taken for garments. A source vertex $i$
+is covered if the score
+\begin{equation}
+  s(i) = \log \frac{r_\N\big(T(i)\big)}{\sigma\, r_\M(i)}
+\end{equation}
+exceeds $0.7$ (the target about twice as flat) after 30 iterations of
+averaging over the source mesh, which keeps only large connected regions;
+$\sigma$ is the ratio of the total bone lengths of the transferred and of the
+source skeleton. At every evaluation of the skeleton (the initial map, every
+restart and every iteration of the refinement) we recompute the covered set
+and refit the regressor of Sec.~\ref{sec:regressor}, with the locality mask
+restricted to the visible vertices. When a joint is covered almost entirely
+(fewer than ten visible vertices in its mask), its mask falls back to the
+visible vertices skinned to its own, its parent or its child bones, so that
+the knee under a skirt is extrapolated from the visible shin and thigh. Since
+the refinement uses the transferred skeleton, the corrected joints also guide
+the following correspondences.
+
 % ============================================================================
 \section{Experiments}
 \label{sec:experiments}
@@ -549,6 +592,58 @@ the final pipeline.
   \end{tabular}
 \end{table}
 
+\paragraph{Loose clothing.}
+% code: skeleton_transfer/clothing.py (uncommitted); samples/bench_cloth2_*.pkl (seed 0),
+% samples/bench_cloth2_seed1_*.pkl (seed 1, variants "all + priors, per-chain restarts" and
+% "..., loose clothing"); oracles and ablations: scratch scripts on dumped maps
+With the complete pipeline, the skirt remains the hardest condition: the map
+collapses the thighs onto the garment, the pelvis and the hips drop by about
+8\,cm and the knees rise by about 9\,cm and splay, while the ankles and the
+upper body are placed correctly. Two oracles locate the problem in the
+regressor rather than in the map. With the ground-truth set of covered
+vertices and the estimated map, leaving the covered vertices out of the
+regressor reduces the mean error on the skirted bodies where the transfer
+succeeds from 62.6 to 46.1\,mm, and the knee error from 224 to 73\,mm; with a
+perfect map the knees regressed from the visible vertices only are within
+62\,mm. Correcting the knees after the transfer (moving them along the
+thigh--shin line or by inverse kinematics from the ankles) recovers only part
+of this gain, since the hips are wrong as well. Leaving the covered vertices
+out of the fit of the functional map too, i.e.\ a partial map, leaves the map
+unconstrained on the garment and diverges (errors of several decimetres). The
+detection of Sec.~\ref{sec:clothing} leaves out 9--21\% of the source vertices
+with a skirt (mostly thighs and knees, 61--64\% of the leg vertices), 13--35\%
+with shirt and skirt, and 0--8\% on the nude bodies.
+
+Table~\ref{tab:clothing_synth} adds it to the complete pipeline with
+per-chain restarts. We chose the threshold on the bodies of
+Tab.~\ref{tab:bijective_synth} and validated it on six new bodies per
+condition (seed 1). On both sets the error with a skirt decreases
+substantially (from 51.6 to 35.0\,mm and from 75.1 to 64.2\,mm), as with shirt
+and skirt (from 76.1 to 49.7\,mm and from 104.3 to 71.4\,mm, two failures
+fewer in total), while the nude bodies and the shirt do not change.
+
+\begin{table}[t]
+  \centering
+  \caption{Mean (median) joint error in mm of the complete pipeline with
+  per-chain restarts, without and with the handling of loose clothing
+  (Sec.~\ref{sec:clothing}), on the bodies of Tab.~\ref{tab:bijective_synth}
+  (seed 0, used to choose the threshold) and on six new bodies per condition
+  (seed 1).}
+  \label{tab:clothing_synth}
+  \small
+  \begin{tabular}{llccccr}
+    \toprule
+    & & nude & shirt & skirt & shirt + skirt & failures \\
+    \midrule
+    Seed 0 & without & 18.3 (16.5) & 37.3 (26.6) & 51.6 (52.7) & 76.1 (77.4) & 1/24 \\
+           & with    & 18.4 (16.5) & 37.3 (26.6) & \textbf{35.0} (\textbf{34.9}) & \textbf{49.7} (\textbf{42.4}) & 0/24 \\
+    \midrule
+    Seed 1 & without & 17.6 (17.8) & 30.8 (30.4) & 75.1 (69.6) & 104.3 (65.4) & 3/24 \\
+           & with    & 17.6 (17.8) & 30.4 (30.4) & \textbf{64.2} (\textbf{61.6}) & \textbf{71.4} (\textbf{53.5}) & 2/24 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 % ----------------------------------------------------------------------------
 \subsection{Real scans of clothed people}
 \label{sec:exp_real}
@@ -597,7 +692,8 @@ Sec.~\ref{sec:exp_robust}.
     All three                & 57.0 (34.6) &  64.4 (42.8) & 25/185 \\
     All three + priors       & 53.7 (32.2) &  61.8 (40.5) & 24/185 \\
     \quad refined restarts   & 40.0 (31.0) & 47.5 (37.0) & 9/185 \\
-    \quad per-chain restarts & \textbf{38.3} (\textbf{31.0}) & \textbf{40.7} (\textbf{35.6}) & \textbf{7/185} \\
+    \quad per-chain restarts & 38.3 (31.0) & 40.7 (35.6) & 7/185 \\
+    \quad + loose clothing   & 37.8 (30.9) & 41.4 (35.7) & 8/185 \\
     \midrule
     \quad plain ZoomOut      & 44.9 (31.6) & 46.7 (36.4) & 14/185 \\
     \bottomrule
@@ -709,6 +805,21 @@ condition) the mean error goes from 49.8 to 45.8\,mm and the failures from 2
 to 1, mostly with shirt and skirt (from 88.9 to 76.1\,mm), with no change on
 the nude bodies. The other statistics of this section refer to the refined
 restarts.
+
+\paragraph{Loose clothing.} On the real scans the detection of
+Sec.~\ref{sec:clothing} leaves out few source vertices (median 1.4\%, 4.8\%
+at the 90th percentile, 15\% at most). On the
+185 scans it is neutral (last row of Tab.~\ref{tab:real} before the plain
+ZoomOut): the mean error goes from 38.8 to 38.5\,mm, 24 transfers improve and
+21 get worse by more than 1\,mm ($p = 0.67$), and one transfer becomes a
+failure. The changes concentrate on the scans where something is detected:
+only 2 of the 108 scans with less than 2\% of covered vertices change by more
+than 5\,mm. With a fixed number of neighbours instead of the metric
+neighbourhood, the detection left out 22--41\% of the source vertices of
+every scan, mostly the hands and the head (Sec.~\ref{sec:clothing}), with the
+same mean error. A benchmark of real scans with skirts and dresses, where the
+handling matters, remains to be built.
+% loose clothing: samples/eval_cloth2_s*.pkl (k-NN radius: samples/eval_cloth_s*.pkl)
 % per-chain: samples/eval_chains_s*.pkl, samples/bench_chains_*.pkl (variant "all + priors,
 % per-chain restarts" added with --resume to copies of eval_bijdef / bench_bijdef);
 % candidate analysis: maps of every candidate re-computed on the 65 real and 19 synthetic
