@@ -28,7 +28,9 @@ Optional robustness steps (see :class:`~skeleton_transfer.config.TransferConfig`
 - **restarts**: if the skeleton is implausible, the functional map is
   re-estimated from initial maps of different sizes and the most plausible
   result is kept (or, with ``restart_selection="refined"``, every candidate
-  is refined and the one with the best segment consistency is kept);
+  is refined and the one with the best segment consistency is kept; with
+  ``restart_selection="chains"`` every limb is then taken from the candidate
+  where it agrees best with the map and the landmarks);
 - **iterative refinement**: the transferred skeleton is used to refine the
   correspondence (bone affinities as extra features), and the skeleton is
   transferred again, until the joints stop moving;
@@ -44,7 +46,7 @@ from typing import List, Optional
 import numpy as np
 
 from .config import TransferConfig
-from .diagnostics import bone_affinity, transfer_diagnostics
+from .diagnostics import bone_affinity, chain_scores, kinematic_chains, transfer_diagnostics
 from .functional_map import cmh_basis, estimate_functional_map, refine_with_features
 from .regressor import fit_spatial_regressor, locality_mask
 from .shapes import SourceShape, TargetShape
@@ -177,6 +179,32 @@ def transfer_skeleton(
                 break
         return C, p2p, spectral, pointwise, diag
 
+    def select_chains(candidates, spectral, pointwise, C, p2p):
+        """Per-chain choice among the refined candidates: the trunk (the chain
+        of the root) stays the one of the chosen map, every other chain is
+        taken from the candidate ranking best on the chain consistency plus
+        the landmark error (sum of the two ranks)."""
+        chains = kinematic_chains(source.parents)
+        scores = [
+            chain_scores(c[2], c[1], source.vertices, target.vertices, source.joints, source.parents, chains,
+                         source.landmarks, target.landmarks)
+            for c in candidates
+        ]  # fmt: skip
+        spectral, pointwise = spectral.copy(), pointwise.copy()
+        for i, chain in enumerate(chains):
+            if source.parents[chain[0]] == chain[0]:
+                continue
+            consistency = np.array([-s[0][i] for s in scores])
+            landmark = np.array([s[1][i] for s in scores])
+            rank = np.argsort(np.argsort(consistency)) + np.argsort(np.argsort(landmark))
+            best = candidates[int(np.argmin(rank))]
+            spectral[chain], pointwise[chain] = best[2][chain], best[3][chain]
+        diag = transfer_diagnostics(
+            spectral, pointwise, C, p2p, source.vertices, target.vertices, source.joints, source.parents
+        )
+        history.append({"stage": "per-chain selection", "joints_spectral": spectral, "joints_pointwise": pointwise, **diag})
+        return spectral, pointwise, diag
+
     # 3) Correspondence, with restarts if the skeleton is implausible
     logger.info("Estimating the functional map...")
     fmap = estimate_functional_map(basis_src, basis_tgt, source.landmarks, target.landmarks, fm_cfg)
@@ -184,7 +212,7 @@ def transfer_skeleton(
     spectral, pointwise, diag = evaluate(C, p2p, f"init k={fm_cfg.n_eigs_init}")
     refined = False
     if not is_plausible(spectral, source.parents, source.joints) and fm_cfg.restart_init_sizes:
-        if fm_cfg.restart_selection == "refined":
+        if fm_cfg.restart_selection in ("refined", "chains"):
             # 3-4) Refine every candidate, keep the best final segment consistency.
             logger.info("Implausible skeleton, refining the initial map and %d restarts...", len(fm_cfg.restart_init_sizes))
             candidates = [refine(C, p2p, spectral, pointwise, diag, f" (k={fm_cfg.n_eigs_init})")]
@@ -194,6 +222,8 @@ def transfer_skeleton(
                 )
                 candidates.append(refine(alt.C, alt.p2p, *evaluate(alt.C, alt.p2p, f"restart k={size}"), f" (k={size})"))
             C, p2p, spectral, pointwise, diag = max(candidates, key=lambda c: c[4]["segment_consistency"])
+            if fm_cfg.restart_selection == "chains":
+                spectral, pointwise, diag = select_chains(candidates, spectral, pointwise, C, p2p)
             refined = True
         else:
             for size in fm_cfg.restart_init_sizes:

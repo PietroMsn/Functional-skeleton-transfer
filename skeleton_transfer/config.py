@@ -85,7 +85,11 @@ class FunctionalMapConfig:
     #: first plausible one. ``"refined"`` (needs ``TransferConfig.iterative``):
     #: refine the initial map and every restart with the iterative loop and
     #: keep the one with the highest final segment consistency; more accurate,
-    #: but runs the refinement once per candidate.
+    #: but runs the refinement once per candidate. ``"chains"``: refine every
+    #: candidate as with ``"refined"``, take the trunk from the one with the
+    #: highest segment consistency and every other kinematic chain (limbs,
+    #: neck) from the candidate where that chain agrees best with the map
+    #: and with the landmarks (see :func:`.diagnostics.chain_scores`).
     restart_selection: str = "bone_ratio"
 
 
@@ -169,10 +173,10 @@ class TransferConfig:
             )
         if fm.n_eigs_init > fm.n_eigs_final:
             raise ValueError("functional_map.n_eigs_init must be <= n_eigs_final.")
-        if fm.restart_selection not in ("bone_ratio", "refined"):
+        if fm.restart_selection not in ("bone_ratio", "refined", "chains"):
             raise ValueError(f"Unknown restart_selection {fm.restart_selection!r}.")
-        if fm.restart_selection == "refined" and self.iterative is None:
-            raise ValueError('restart_selection="refined" needs the iterative refinement.')
+        if fm.restart_selection in ("refined", "chains") and self.iterative is None:
+            raise ValueError(f'restart_selection={fm.restart_selection!r} needs the iterative refinement.')
         for size in fm.restart_init_sizes:
             if size > fm.n_eigs_final or (fm.n_eigs_final - size) % fm.zoomout_step != 0:
                 raise ValueError(f"Invalid restart size {size}: see FunctionalMapConfig.restart_init_sizes.")

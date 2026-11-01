@@ -101,3 +101,32 @@ def test_refined_restarts_keep_best_segment_consistency(model, monkeypatch):
     assert set(finals) == {"k=20)", "k=30)"}
     best = max(finals.values(), key=lambda h: h["segment_consistency"])
     np.testing.assert_allclose(result.joints_spectral, best["joints_spectral"])
+
+
+def test_chain_restarts_assemble_the_candidates(model, monkeypatch):
+    """With restart_selection="chains" the trunk comes from the candidate
+    with the best segment consistency and every other chain from one of the
+    refined candidates."""
+    from dataclasses import replace
+
+    from skeleton_transfer import IterativeConfig, TransferConfig, transfer_skeleton
+    from skeleton_transfer import transfer as transfer_module
+    from skeleton_transfer.diagnostics import kinematic_chains
+
+    monkeypatch.setattr(transfer_module, "is_plausible", lambda *args: False)  # always restart
+    target, _ = make_synthetic_target(model, np.random.default_rng(2), n_points=3000, landmarks=SMPL_LANDMARKS)
+    cfg = TransferConfig(iterative=IterativeConfig(n_iterations=2))
+    cfg = replace(cfg, functional_map=replace(cfg.functional_map, restart_init_sizes=(30,), restart_selection="chains"))
+    result = transfer_skeleton(model.as_source(), target, cfg)
+
+    assert result.history[-1]["stage"] == "per-chain selection"
+    finals = {}
+    for h in result.history:
+        if h["stage"].startswith("iteration"):
+            finals[h["stage"].split("(")[1]] = h
+    best = max(finals.values(), key=lambda h: h["segment_consistency"])
+    for chain in kinematic_chains(model.parents):
+        if model.parents[chain[0]] == chain[0]:
+            np.testing.assert_allclose(result.joints_spectral[chain], best["joints_spectral"][chain])
+        else:
+            assert any(np.allclose(result.joints_spectral[chain], h["joints_spectral"][chain]) for h in finals.values())

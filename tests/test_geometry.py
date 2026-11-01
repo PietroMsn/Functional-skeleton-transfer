@@ -153,3 +153,12 @@ def test_load_target_mesh_with_landmarks(tmp_path):
     assert load_target(str(mesh), landmarks=[4, 5], point_cloud=True).faces is None
     with pytest.raises(ValueError):
         load_target(str(mesh))
+
+
+def test_kinematic_chains_of_smpl():
+    from skeleton_transfer.diagnostics import kinematic_chains
+
+    parents = np.array([0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19, 20, 21])
+    assert kinematic_chains(parents) == [
+        [0], [1, 4, 7, 10], [2, 5, 8, 11], [3, 6, 9], [12, 15], [13, 16, 18, 20, 22], [14, 17, 19, 21, 23]
+    ]  # fmt: skip

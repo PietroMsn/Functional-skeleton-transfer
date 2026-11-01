@@ -36,6 +36,65 @@ def bone_affinity(points: np.ndarray, joints: np.ndarray, parents: np.ndarray, t
     return w / w.sum(axis=1, keepdims=True)
 
 
+def kinematic_chains(parents: np.ndarray) -> list:
+    """Unbranched chains of the skeleton (lists of joints, from the top).
+
+    A chain starts at the root or at a child of a branching joint and follows
+    the only child down to a leaf or to the next branching joint: for SMPL,
+    the two legs, the two arms (from the collars), the spine, the neck and
+    the root. Works for any skeleton hierarchy.
+    """
+    n = len(parents)
+    children = [[c for c in range(n) if parents[c] == j and c != j] for j in range(n)]
+    chains = []
+    for j in range(n):
+        if parents[j] == j or len(children[parents[j]]) > 1:
+            chain = [j]
+            while len(children[chain[-1]]) == 1:
+                chain.append(children[chain[-1]][0])
+            chains.append(chain)
+    return chains
+
+
+def chain_scores(
+    joints: np.ndarray,
+    p2p: np.ndarray,
+    source_vertices: np.ndarray,
+    target_vertices: np.ndarray,
+    source_joints: np.ndarray,
+    parents: np.ndarray,
+    chains: list,
+    source_landmarks: np.ndarray = None,
+    target_landmarks: np.ndarray = None,
+):
+    """Local quality of every chain of a transfer, ``(n_chains,)`` arrays.
+
+    - ``consistency``: segment consistency (see :func:`transfer_diagnostics`)
+      restricted to the source vertices closest to the bones of the chain
+      (higher is better; NaN for a chain without bones, e.g. the root);
+    - ``landmark_error``: mean difference between the distances of the chain
+      joints from the target landmarks and the same distances on the source,
+      after removing the global scale, relative to the mean source bone
+      (lower is better; zeros without landmarks). A chain placed on the
+      wrong limb is far from the landmarks of its own limb.
+    """
+    b = bones(parents)
+    label_src = b[point_to_bone_distances(source_vertices, source_joints, parents).argmin(axis=1)]
+    label_tgt = b[point_to_bone_distances(target_vertices, joints, parents).argmin(axis=1)]
+    agree = label_src == label_tgt[p2p]
+    consistency = np.array(
+        [agree[np.isin(label_src, chain)].mean() if np.isin(label_src, chain).any() else np.nan for chain in chains]
+    )
+    landmark_error = np.zeros(len(chains))
+    if source_landmarks is not None and target_landmarks is not None and len(source_landmarks):
+        scale = bone_lengths(joints, parents).sum() / bone_lengths(source_joints, parents).sum()
+        d_src = np.linalg.norm(source_joints[:, None] - source_vertices[source_landmarks][None], axis=2)
+        d_tgt = np.linalg.norm(joints[:, None] - target_vertices[target_landmarks][None], axis=2) / scale
+        mean_bone = bone_lengths(source_joints, parents).mean()
+        landmark_error = np.array([np.abs(d_tgt[chain] - d_src[chain]).mean() / mean_bone for chain in chains])
+    return consistency, landmark_error
+
+
 def transfer_diagnostics(
     joints_spectral: np.ndarray,
     joints_pointwise: np.ndarray,

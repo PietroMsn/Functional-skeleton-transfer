@@ -63,6 +63,9 @@ def default_variants() -> List[Variant]:
         ("all + priors, refined restarts", True,
          replace(base, functional_map=replace(both, restart_selection="refined"), iterative=IterativeConfig(),
                  skeleton_priors=SkeletonPriorConfig())),
+        ("all + priors, per-chain restarts", True,
+         replace(base, functional_map=replace(both, restart_selection="chains"), iterative=IterativeConfig(),
+                 skeleton_priors=SkeletonPriorConfig())),
     ]  # fmt: skip
 
 
