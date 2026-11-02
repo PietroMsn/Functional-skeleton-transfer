@@ -146,6 +146,27 @@ class IterativeConfig:
 
 
 @dataclass
+class LooseClothingConfig:
+    """Leave out the source vertices hidden under a loose garment.
+
+    See :mod:`skeleton_transfer.clothing`: the source vertices matched onto a
+    surface much flatter than their own (a skirt over the legs) are left out
+    of the joint regressor, at every stage (so the refinement is also guided
+    by the corrected skeleton).
+    """
+
+    #: Threshold on the smoothed log-ratio of the radii of curvature (target
+    #: over source); 0.7 means about twice as flat.
+    threshold: float = 0.7
+    #: Smoothing iterations of the log-ratio over the source surface.
+    n_smooth: int = 30
+    #: Radius of the neighbourhood of the normal / curvature estimates, as a
+    #: fraction of the total bone length of the skeleton (about 26 mm on
+    #: SMPL); on the target it is scaled by the size ratio of the two shapes.
+    neighbourhood: float = 0.006
+
+
+@dataclass
 class TransferConfig:
     """Top-level configuration grouping all pipeline stages."""
 
@@ -162,6 +183,8 @@ class TransferConfig:
     skeleton_priors: Optional[SkeletonPriorConfig] = None
     #: Iterative skeleton <-> correspondence refinement (None = off).
     iterative: Optional[IterativeConfig] = None
+    #: Loose clothing handling (None = off).
+    loose_clothing: Optional[LooseClothingConfig] = None
 
     def validate(self) -> None:
         """Raise ``ValueError`` if the parameters are inconsistent."""

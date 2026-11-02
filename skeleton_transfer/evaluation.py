@@ -23,7 +23,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from scipy.stats import spearmanr
 
-from .config import IterativeConfig, TransferConfig
+from .config import IterativeConfig, LooseClothingConfig, TransferConfig
 from .regressor import fit_spatial_regressor, locality_mask
 from .shapes import SMPL_EXTRA_LANDMARKS, SMPL_LANDMARKS, SourceShape, TargetShape
 from .skeleton_priors import SkeletonPriorConfig
@@ -66,6 +66,9 @@ def default_variants() -> List[Variant]:
         ("all + priors, per-chain restarts", True,
          replace(base, functional_map=replace(both, restart_selection="chains"), iterative=IterativeConfig(),
                  skeleton_priors=SkeletonPriorConfig())),
+        ("all + priors, per-chain restarts, loose clothing", True,
+         replace(base, functional_map=replace(both, restart_selection="chains"), iterative=IterativeConfig(),
+                 skeleton_priors=SkeletonPriorConfig(), loose_clothing=LooseClothingConfig())),
     ]  # fmt: skip
 
 

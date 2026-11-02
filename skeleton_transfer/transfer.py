@@ -34,7 +34,10 @@ Optional robustness steps (see :class:`~skeleton_transfer.config.TransferConfig`
 - **iterative refinement**: the transferred skeleton is used to refine the
   correspondence (bone affinities as extra features), and the skeleton is
   transferred again, until the joints stop moving;
-- **skeleton priors**: symmetry / proportion correction of the joints.
+- **skeleton priors**: symmetry / proportion correction of the joints;
+- **loose clothing**: the source vertices matched onto a garment (a skirt
+  over the legs) are detected (:mod:`.clothing`) and left out of the joint
+  regressor.
 
 Every result carries unsupervised quality scores (:mod:`.diagnostics`).
 """
@@ -45,6 +48,7 @@ from typing import List, Optional
 
 import numpy as np
 
+from .clothing import adjacency, covered_vertices, local_radius, visible_regressor_mask
 from .config import TransferConfig
 from .diagnostics import bone_affinity, chain_scores, kinematic_chains, transfer_diagnostics
 from .functional_map import cmh_basis, estimate_functional_map, refine_with_features
@@ -138,14 +142,40 @@ def transfer_skeleton(
     landmarks = (source.landmarks, target.landmarks) if fm_cfg.enforce_landmarks else None
     history = []
 
+    cloth_cfg = config.loose_clothing
+    visible = None  # source vertices not hidden under a garment, updated by evaluate()
+    if cloth_cfg is not None:
+        source_size = bone_lengths(source.joints, source.parents).sum()
+        # Rough size ratio, only to scale the neighbourhood of the target.
+        rms = lambda x: np.sqrt(((x - x.mean(axis=0)) ** 2).sum(axis=1).mean())
+        neighbourhood = cloth_cfg.neighbourhood * source_size
+        source_radius = local_radius(source.vertices, neighbourhood)
+        target_radius = local_radius(target.vertices, neighbourhood * rms(target.vertices) / rms(source.vertices))
+        source_graph = adjacency(source.vertices, source.faces)
+
     def evaluate(C, p2p, stage):
         """Joints of both transfers and their diagnostics."""
+        nonlocal visible
         spectral = regressor_hat @ C @ target_coords_hat
-        pointwise = regressor @ target.vertices[p2p]
+        extra = {}
+        if cloth_cfg is None:
+            pointwise = regressor @ target.vertices[p2p]
+        else:
+            size_ratio = bone_lengths(spectral, source.parents).sum() / source_size
+            visible = ~covered_vertices(
+                source_radius, target_radius, p2p, size_ratio, source_graph, cloth_cfg.threshold, cloth_cfg.n_smooth
+            )
+            visible_mask = visible_regressor_mask(
+                mask, visible, source.skinning_weights, source.parents, config.regressor.skinning_weight_threshold
+            )
+            visible_regressor = fit_spatial_regressor(source.vertices, source.joints, visible_mask, config.regressor)
+            spectral = visible_regressor @ phi_src @ C @ target_coords_hat
+            pointwise = visible_regressor @ target.vertices[p2p]
+            extra["covered_fraction"] = float(1 - visible.mean())
         diag = transfer_diagnostics(
             spectral, pointwise, C, p2p, source.vertices, target.vertices, source.joints, source.parents
         )
-        history.append({"stage": stage, "joints_spectral": spectral, "joints_pointwise": pointwise, **diag})
+        history.append({"stage": stage, "joints_spectral": spectral, "joints_pointwise": pointwise, **diag, **extra})
         return spectral, pointwise, diag
 
     it_cfg = config.iterative

@@ -162,3 +162,33 @@ def test_kinematic_chains_of_smpl():
     assert kinematic_chains(parents) == [
         [0], [1, 4, 7, 10], [2, 5, 8, 11], [3, 6, 9], [12, 15], [13, 16, 18, 20, 22], [14, 17, 19, 21, 23]
     ]  # fmt: skip
+
+
+def test_local_radius_of_a_sphere_and_a_plane():
+    from skeleton_transfer.clothing import local_radius
+
+    rng = np.random.default_rng(0)
+    sphere = rng.normal(size=(3000, 3))
+    sphere = 0.3 * sphere / np.linalg.norm(sphere, axis=1, keepdims=True)
+    np.testing.assert_allclose(np.median(local_radius(sphere, 0.08)), 0.3, rtol=0.15)
+    plane = np.c_[rng.uniform(-1, 1, (3000, 2)), np.zeros(3000)]
+    assert np.median(local_radius(plane, 0.08)) > 10
+    # The metric neighbourhood does not depend on the sampling density.
+    dense = np.r_[sphere, sphere[sphere[:, 2] > 0] + 1e-3 * rng.normal(size=(np.sum(sphere[:, 2] > 0), 3))]
+    dense = 0.3 * dense / np.linalg.norm(dense, axis=1, keepdims=True)
+    radius = local_radius(dense, 0.08)
+    np.testing.assert_allclose(np.median(radius[dense[:, 2] > 0]), np.median(radius[dense[:, 2] < 0]), rtol=0.15)
+
+
+def test_visible_regressor_mask_falls_back_to_the_neighbouring_bones():
+    from skeleton_transfer.clothing import visible_regressor_mask
+
+    parents = np.array([0, 0, 1])  # root -> 1 -> 2
+    weights = np.repeat(np.eye(3), 20, axis=0)  # 20 vertices per bone
+    mask = np.zeros((3, 60))
+    mask[1, 20:40] = 1
+    visible = np.ones(60, bool)
+    visible[20:40] = False  # joint 1 entirely covered
+    out = visible_regressor_mask(mask, visible, weights, parents, 0.1)
+    assert out[1, 20:40].sum() == 0
+    assert out[1, :20].all() and out[1, 40:].all()  # parent and child bones
