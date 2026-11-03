@@ -203,7 +203,7 @@ proportions (Sec.~\ref{sec:exp_failures}).
 
 Large errors are failures of the correspondence, which no correction of the
 skeleton can repair (Sec.~\ref{sec:exp_failures}). We make the correspondence
-more robust with four complementary components.
+more robust with five complementary components.
 
 \paragraph{Limb landmarks.} Besides the seven landmarks of
 \citet{musoni2021functional} (head, hands, feet, front and back of the torso)
@@ -254,6 +254,34 @@ with $w_b = 1$; both functional maps are then re-fitted to their
 point-to-point maps at the next size. $T'$ starts from the map induced by
 $\C^\top$ after ICP (the inverse of an orthogonal map). Only ZoomOut is
 replaced: the skeleton-guided refinement below keeps one direction.
+
+\paragraph{Landmark Voronoi cells.}
+% code: feature/target-skeleton-priors, after cd70d3d (not yet committed),
+% skeleton_transfer/descriptors.py:landmark_geodesics, voronoi_cells;
+% FunctionalMapConfig.voronoi_steps = 5 (default), descriptors = "wave" | "geodesic" | "both"
+The landmarks enter the initial map only through their wave kernel maps, and
+their influence fades during ICP and ZoomOut. Their geodesic Voronoi cells
+are a coarse segmentation of both shapes into corresponding parts (for the
+seven landmarks: head, hands, feet, chest and back) that needs no learning,
+no labels and no knowledge of the skeleton. We compute the shortest-path
+distances $g_l(x)$ from every landmark $l$ along the edges of the mesh, or of
+a $k$-nearest-neighbour graph for a point cloud ($k = 8$, doubled until the
+graph is connected), and the cell indicators
+$v_l(x) = [\,l = \arg\min_{l'} g_{l'}(x)\,]$. After ZoomOut we run five more
+refinements at the final size $k = 120$ that append the indicators to the
+spectral embeddings,
+\begin{equation}
+  T(i) = \operatorname*{arg\,min}_{j} \;\big\|\Phi_i - (\Psi\C^\top)_j\big\|^2 + w_v^2 \|\mathbf{v}^\M(i) - \mathbf{v}^\N(j)\|^2 ,
+\end{equation}
+each followed by a re-fit of $\C$, with $w_v$ the median norm of the rows of
+the spectral embedding (every $\mathbf{v}(x)$ has unit norm). Unlike the bone affinities of the
+refinement below, the cells do not depend on the transferred skeleton, so
+they also correct the map from which the first skeleton is computed, and the
+map of every restart. We also tested the geodesic distances as descriptors
+of the initial map, in place of or together with WKS and WKM: the distances
+$g_l / \sqrt{A}$, with $A$ the area of the shape, and the Gaussians
+$\exp\!\big(-(g_l / s\sqrt{A})^2\big)$ for $s \in \{0.1, 0.25, 0.5\}$
+(Sec.~\ref{sec:exp_unified}).
 
 \paragraph{Skeleton-guided refinement.} The transferred skeleton carries
 extrinsic, pose-aware information that intrinsic descriptors lack: which
@@ -817,8 +845,8 @@ only 2 of the 108 scans with less than 2\% of covered vertices change by more
 than 5\,mm. With a fixed number of neighbours instead of the metric
 neighbourhood, the detection left out 22--41\% of the source vertices of
 every scan, mostly the hands and the head (Sec.~\ref{sec:clothing}), with the
-same mean error. A benchmark of real scans with skirts and dresses, where the
-handling matters, remains to be built.
+same mean error. The real scans with skirts and dresses of
+Sec.~\ref{sec:exp_unified} do not show a gain either.
 % loose clothing: samples/eval_cloth2_s*.pkl (k-NN radius: samples/eval_cloth_s*.pkl)
 % per-chain: samples/eval_chains_s*.pkl, samples/bench_chains_*.pkl (variant "all + priors,
 % per-chain restarts" added with --resume to copies of eval_bijdef / bench_bijdef);
@@ -850,10 +878,208 @@ are those of the ground truth. The comparison shows, however, that on humans
 with a SMPL template the transfer is not competitive with a parametric fit,
 and that its use is for templates and skeletons without a parametric model.
 
-\paragraph{Limitations.} The outer garments are still a minority (36 scans of
-five subjects); the evaluation must be extended to more subjects with outer
-layers and to CAPE~\citep{ma2020cape}. The ground truth itself is the joints of a
-registered SMPL body, which has its own error under loose clothing.
+% ----------------------------------------------------------------------------
+\subsection{Unified benchmark: clothed humans, children and animals}
+\label{sec:exp_unified}
+% ----------------------------------------------------------------------------
+% code: feature/target-skeleton-priors, after cd70d3d (not yet committed),
+% tools/benchmark_unified.py DATASET_ROOT --split dev --smal smal_CVPR2017.pkl --shard I/8;
+% baseline / per-chain / loose clothing: samples/unified_dev_s*.pkl; Voronoi and geodesic + Voronoi:
+% samples/unified_mapfull_s*.pkl (seeded with the 160 samples of samples/unified_map_s*.pkl).
+% Dataset: unified-body-dataset project, manifest.csv (provenance of every sample), splits by subject.
+% Map study: scratch script map_study.py (57 samples), not in the repository.
+
+The previous benchmarks cover adult humans and one dataset of real scans. To
+test the transfer on the variety of targets it is meant for, we gathered real
+and synthetic shapes with a registered parametric body in a single dataset,
+split by subject into a development set (890 samples, used for all the
+results below) and a test set (464 samples, held out). The development set
+contains
+\begin{itemize}
+  \item 519 scans of 4D-DRESS~\citep{wang2024dress} (13 subjects; 396 with
+    inner and 123 with outer garments), selected by farthest-point sampling on
+    the pose within each subject and outfit;
+  \item 181 scans of CloSe-Di~\citep{antic2024close}, the SIZER
+    scans~\citep{tiwari2020sizer} with garment labels (57 subjects; 92 inner,
+    53 outer, and 36 with skirts or dresses), with the released SMPL
+    registration refined on the scan (its shape parameters were all zero);
+  \item 43 scans of BUFF~\citep{zhang2017detailed} (3 subjects; 27 in
+    T-shirt and long trousers, 16 in a soccer outfit), with the SMPL
+    pose fitted on the released minimal body shape;
+  \item 42 synthetic adults (SMPL male, female and neutral, poses of
+    4D-DRESS), and 42 more with the synthetic shirt and skirt of
+    Sec.~\ref{sec:exp_benchmark} (skirts on standing poses only);
+  \item 28 synthetic children, obtained by interpolating SMPL towards the
+    infant model SMIL~\citep{hesse2018learning} (interpolation factor 0.25,
+    0.5, 0.75 and 1, mean bone length from 155 to 53\,mm against 190\,mm for
+    the adults);
+  \item 35 synthetic animals of SMAL~\citep{zuffi2017menagerie} in random
+    poses, from five families (felids, canids, equids, bovids and
+    hippopotamids).
+\end{itemize}
+Targets are sampled and given their landmarks as in Sec.~\ref{sec:exp_real}.
+The source of the humans is the neutral SMPL template, also for the
+children, and that of the animals is the SMAL template with its 33-joint
+skeleton and the analogous landmarks: top of the back, chest, nose, the four
+paws and the tip of the tail, plus the front knees and the hocks as limb
+landmarks. Since the children and the animals have other sizes than the
+adults, we also report the error relative to the mean ground-truth bone
+length. A failure is still an error above 10\,cm, a lenient threshold for the
+smallest children.
+
+\begin{table}[t]
+  \centering
+  \caption{Mean joint error in mm / failures (error $>$ 10\,cm) on the
+  development set of the unified benchmark. \emph{Complete}: all three
+  components of Tab.~\ref{tab:variants}, priors, bijective ZoomOut and
+  per-chain restarts. The last two columns add the Voronoi cells of the
+  landmarks (Sec.~\ref{sec:robust}), with the WKS/WKM descriptors (our default)
+  or with the geodesic descriptors.}
+  \label{tab:unified}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lrccccc}
+    \toprule
+    & $n$ & Baseline & Complete & + loose & + Voronoi & + geodesic \\
+    &     &          &          & clothing &          & + Voronoi \\
+    \midrule
+    4D-DRESS inner     & 396 &  68.0 / 76  & 33.1 / 13 & 32.7 / 10 & 30.2 / 3 & \textbf{29.5} / 0 \\
+    4D-DRESS outer     & 123 &  76.3 / 29  & 37.1 / 2  & 37.0 / 2  & 33.2 / 0 & \textbf{31.2} / 0 \\
+    CloSe-Di inner     &  92 &  88.6 / 22  & 39.5 / 5  & 38.7 / 6  & 33.9 / 0 & \textbf{33.3} / 0 \\
+    CloSe-Di outer     &  53 &  85.2 / 13  & 41.0 / 4  & 41.1 / 4  & 36.3 / 1 & \textbf{34.8} / 1 \\
+    CloSe-Di skirt     &  36 & 120.1 / 13  & 39.8 / 4  & 40.1 / 3  & 33.4 / 1 & \textbf{31.8} / 0 \\
+    BUFF               &  43 & 154.8 / 22  & 65.6 / 12 & 64.5 / 11 & \textbf{49.2} / 0 & 50.5 / 4 \\
+    Synthetic adults   &  42 &  47.3 / 5   & 20.9 / 0  & 20.3 / 0  & \textbf{18.4} / 0 & 19.3 / 0 \\
+    Synthetic clothed  &  42 & 110.3 / 16  & 47.5 / 2  & 46.0 / 2  & 41.2 / 0 & \textbf{40.1} / 0 \\
+    Synthetic children &  28 & 113.4 / 16  & 69.1 / 8  & 61.3 / 4  & 40.3 / 0 & \textbf{39.2} / 0 \\
+    Synthetic animals  &  35 & 111.7 / 11  & 104.7 / 8 & 101.2 / 8 & 73.8 / 8 & \textbf{70.0} / 8 \\
+    \midrule
+    All humans         & 855 &  81.6 / 212 & 38.1 / 50 & 37.4 / 42 & 32.8 / 5 & \textbf{32.0} / 5 \\
+    All                & 890 &  82.8 / 223 & 40.7 / 58 & 39.9 / 50 & 34.4 / 13 & \textbf{33.5} / 13 \\
+    \quad median       &     &  35.7       & 29.1      & 28.9      & 28.7     & \textbf{28.3} \\
+    \quad relative to the bone length & & 46.5\% & 23.0\% & 22.4\% & 19.1\% & \textbf{18.6}\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Complete pipeline and loose clothing.} Table~\ref{tab:unified}
+confirms the findings of Sec.~\ref{sec:exp_real}, mostly on datasets that
+were not used to design the method: the complete pipeline halves the mean
+error (from 82.8 to 40.7\,mm) and divides the failures by four (from 223 to
+58). It improves every group, but the animals only a little (from 111.7 to
+104.7\,mm). The handling of loose clothing gives a small gain overall (to
+39.9\,mm, 50 failures), mostly on the children (from 69.1 to 61.3\,mm), and
+is neutral on the 36 real skirts and dresses of CloSe-Di (from 39.8 to
+40.1\,mm, one failure fewer), where the complete pipeline is already as
+accurate as with inner garments. We keep it on by default, since no group
+gets worse by more than 0.3\,mm.
+
+\paragraph{Ingredients of the functional map.} Most of the remaining
+failures are failures of the initial functional map. To find which
+ingredient limits it we ran a study of the map alone (initial map, ICP and
+bijective ZoomOut with all the landmarks enforced, no restarts, refinement
+or priors) on 57 samples of the development set, evenly spaced within
+fixed numbers per group that favour the hard groups (18 tight humans, 29
+clothed, 4 children, 6 animals), measuring the error of the spectral
+transfer (Tab.~\ref{tab:mapstudy}). The size of the map has little effect.
+A final size of 150 or 200 instead of 120 changes the mean error by less
+than 3\,mm. An initial size of 30 instead of 20 lowers it (to 74.9\,mm) but
+improves and worsens as many samples (23 each), and an initial size of 10
+is clearly worse (108.3\,mm); this variability is what the restarts exploit.
+Other bases do not help either: the Coordinates Manifold
+Harmonics~\todo{cite CMH}, which represent the coordinates exactly, give
+about the same mean error (83.1\,mm), while the Laplacian
+of the source point cloud (instead of its mesh) and the scale-invariant
+Laplacian~\citep{aflalo2013scale}, with the area element scaled by the
+Gaussian curvature ($|K|^{1/2}$ in Tab.~\ref{tab:mapstudy}; $|K|$ is worse
+still), are worse. The descriptors matter more. The WKS alone fails on almost every
+sample (342.0\,mm): all the information that makes the map work comes from the landmarks. The
+wave kernel maps alone, the heat kernel signature and maps~\citep{sun2009concise}
+and above all the geodesic distances from the landmarks are better than the
+WKS/WKM pair (from 83.9 to 75.3, 61.9 and 55.1\,mm). Segmentation
+information is the strongest cue, provided it enters the point-to-point
+steps rather than the initial map: the ground-truth segmentation into the 24
+SMPL parts, transferred from the registration, reduces the error to 32.1\,mm
+when appended to the spectral embeddings after ZoomOut, improving 51 of the 57
+samples and worsening none, but only to 69.2\,mm when used as descriptors of
+the initial map. The landmark Voronoi cells of Sec.~\ref{sec:robust} are the
+unsupervised counterpart of this oracle and recover about two thirds of its
+gain (48.3\,mm, 35 samples improved and 6 worsened by more than 2\,mm), while
+as descriptors they give 67.1\,mm.
+
+\begin{table}[t]
+  \centering
+  \caption{Study of the functional map alone on 57 samples of the development
+  set: mean error of the spectral transfer in mm, and number of samples improved
+  / worsened by more than 2\,mm with respect to the default (WKS/WKM, $k$ from
+  20 to 120). \emph{Feature}: appended to the spectral embeddings in ten
+  refinements after ZoomOut (five in the pipeline); \emph{descriptor}: added
+  to the descriptors of the initial map.}
+  \label{tab:mapstudy}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lcccccc}
+    \toprule
+    & tight & clothed & children & animals & all & better / \\
+    & (18) & (29) & (4) & (6) & (57) & worse \\
+    \midrule
+    Default                               &  55.3 &  81.3 &  89.3 & 178.5 &  83.9 & -- \\
+    Final size 200                        &  53.2 &  82.6 &  97.8 & 177.2 &  84.3 & 22 / 11 \\
+    Initial size 30                       &  43.7 &  75.5 &  85.2 & 159.0 &  74.9 & 23 / 23 \\
+    CMH basis                             &  58.0 &  78.7 &  92.9 & 172.7 &  83.1 & 29 / 9 \\
+    Source point-cloud Laplacian          &  66.6 &  90.2 &  92.1 & 263.8 & 101.2 & 17 / 32 \\
+    Scale-invariant Laplacian             &  50.5 & 119.7 &  84.9 & 253.7 & 109.5 & 14 / 41 \\
+    \midrule
+    WKS only                              & 295.0 & 344.6 & 215.8 & 554.0 & 342.0 & 2 / 55 \\
+    WKM only                              &  40.0 &  73.7 &  95.4 & 175.7 &  75.3 & 14 / 5 \\
+    HKS + HKM                             &  30.4 &  56.8 &  96.2 & 158.4 &  61.9 & 25 / 10 \\
+    Geodesic distances                    &  29.3 &  51.4 &  87.4 & 128.3 &  55.1 & 28 / 5 \\
+    WKS/WKM + geodesic distances          &  29.2 &  65.2 & 113.1 & 156.0 &  66.8 & 20 / 5 \\
+    \midrule
+    Voronoi cells, descriptor             &  39.8 &  66.4 & 110.9 & 123.0 &  67.1 & 16 / 5 \\
+    Voronoi cells, feature                &  32.8 &  49.0 &  42.6 &  95.0 &  48.3 & 35 / 6 \\
+    Oracle SMPL parts, descriptor         &  44.6 &  67.8 &  91.4 & 135.0 &  69.2 & 15 / 6 \\
+    Oracle SMPL parts, feature            &  22.0 &  31.8 &  46.5 &  54.3 &  32.1 & 51 / 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Voronoi cells in the complete pipeline.} Added to the complete
+pipeline (last two columns of Tab.~\ref{tab:unified}), the Voronoi cells
+reduce the mean error from 39.9 to 34.4\,mm and the failures from 50 to 13:
+all the 37 failures they change are recovered and none is introduced, 289
+transfers improve and 138 get worse by more than 1\,mm (16 by more than
+10\,mm, none by more than 30\,mm; Wilcoxon signed-rank test on the 890 paired
+transfers, $p < 10^{-20}$). Every group improves. The largest gains are on
+BUFF (from 64.5 to 49.2\,mm, from 11 failures to none), on the children (from
+61.3 to 40.3\,mm, from 4 failures to none) and on the animals (from 101.2 to
+73.8\,mm). The remaining failures are five scans of humans and the eight
+hippopotamids, whose massive bodies and short legs defeat every variant (their
+error goes from 297 to 183\,mm). Using the geodesic distances also as
+descriptors of the initial map lowers the mean error a little further (to
+33.5\,mm), but less reliably: four transfers of BUFF fail, and three
+transfers get worse by more than 30\,mm. We therefore make the Voronoi cells
+with the WKS/WKM descriptors the default of the pipeline.
+
+\paragraph{Children and animals.} The transfer is not specific to the
+human template: with the SMAL template the error on felids, canids, equids
+and bovids is 33--46\,mm (22--26\% of the mean bone length), comparable in
+relative terms with the real clothed humans (16--30\%). Small children remain the
+hardest case relative to their size: the error on the children is 54\% of
+the mean bone length, and 121\% for the infants (factor 1, 64.4\,mm for bones
+of 53\,mm), against 9.6\% for the synthetic adults. Besides the different
+proportions of an infant, which the map from an adult template has to absorb,
+the proportion prior of Sec.~\ref{sec:priors} and the plausibility check
+assume the proportions of the source, which do not hold for an infant; a
+source closer to the target (a child template) would remove both
+mismatches.
+
+\paragraph{Limitations.} The ground truth is the joints of a registered
+parametric body, which has its own error under loose clothing; on BUFF it is
+a pose fitted by us. The real scans with skirts and dresses are still few
+(36 in the development set), and CAPE~\citep{ma2020cape} remains to be
+added. The results on the held-out test set will be reported with the final
+configuration.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}

@@ -29,8 +29,16 @@ latexmk -pdf main.tex
 | 2026-10-31 | `27a49c0` (feature/target-skeleton-priors) | bijective ZoomOut in the method and as default; plain vs bijective on the synthetic benchmark (new table); real scans re-run with the bijective ZoomOut (Tab. 6, plain ZoomOut kept as last row), statistics and SMPL fitting comparison updated; GPU nearest-neighbour search |
 | 2026-10-31 | `d3f1581` (feature/target-skeleton-priors) | per-chain restarts in the method; analysis of the restart choice (whole-candidate scores, fusions, per-chain oracle) and per-chain variant on the real scans (Tab. 6) and the synthetic benchmark; SMPL fitting comparison updated |
 | 2026-11-01 | `cd70d3d` (feature/target-skeleton-priors) | loose clothing: curvature-based detection of covered source vertices with a metric neighbourhood, visible-only regressor; oracles, failed partial map, seed-0/seed-1 synthetic table, real scans (Tab. 6) |
+| 2026-11-03 | after `cd70d3d` (feature/target-skeleton-priors, not yet committed) | landmark Voronoi cells after ZoomOut (default) and geodesic descriptors in the method; unified benchmark (dev split, 890 samples: 4D-DRESS, CloSe-Di, BUFF, synthetic adults / clothed / children / SMAL animals) with the loose clothing and Voronoi variants (new table); study of the functional map ingredients on 57 samples (new table); loose clothing on by default |
 
 ## Reproducing the numbers
+
+- Unified benchmark (dev split): `tools/benchmark_unified.py DATASET_ROOT --split dev --smal
+  smal_CVPR2017.pkl --shard I/8 --out unified_sI.pkl` (variants: baseline, per-chain restarts,
+  loose clothing, Voronoi; `--variants "... loose clothing, geodesic + Voronoi"` for the last
+  column), merged with `--report`. The dataset and the provenance of every sample (`manifest.csv`)
+  come from the `unified-body-dataset` project. The map study (57 samples) is a scratch script,
+  not in the repository.
 
 - Loose clothing (synthetic table and last real row before the plain ZoomOut):
   `tools/benchmark_synthetic.py -n 6 [--seed 1]` and `tools/evaluate_scans.py --shard i/7`
