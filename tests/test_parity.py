@@ -55,7 +55,7 @@ def run():
     basis_src = compute_laplace_basis(source.vertices, source.faces, 400)
     basis_tgt = compute_laplace_basis(target.vertices, target.faces, 400)
     # The plain ZoomOut of the original method
-    config = TransferConfig(functional_map=FunctionalMapConfig(bijective=False))
+    config = TransferConfig(functional_map=FunctionalMapConfig(bijective=False, voronoi_steps=0), loose_clothing=None)
     result = transfer_skeleton(source, target, config, basis_src=basis_src)
     return dict(source=source, target=target, result=result, basis_src=basis_src, basis_tgt=basis_tgt, k=k)
 

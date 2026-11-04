@@ -1,6 +1,9 @@
 """
 Minimal SMPL model (Loper et al. 2015), NumPy only.
 
+The same code reads the models of the SMPL family with another skeleton, as
+SMAL (Zuffi et al. 2017, 33 joints, quadrupeds): see :data:`SMAL_LANDMARKS`.
+
 Used to generate shapes with known ground-truth joints (any body shape and
 pose) for evaluation, see :mod:`skeleton_transfer.synthetic`. It reads the
 ``.mat`` export of the SMPL model that is also used as the transfer source.
@@ -72,9 +75,9 @@ class SMPLModel:
     faces: np.ndarray  # (n_faces, 3)
     shapedirs: np.ndarray  # (n_vertices, 3, n_betas)
     posedirs: np.ndarray  # (n_vertices, 3, 207)
-    J_regressor: np.ndarray  # (24, n_vertices)
-    weights: np.ndarray  # (n_vertices, 24)
-    parents: np.ndarray  # (24,), root points to itself
+    J_regressor: np.ndarray  # (n_joints, n_vertices), 24 joints for SMPL
+    weights: np.ndarray  # (n_vertices, n_joints)
+    parents: np.ndarray  # (n_joints,), root points to itself
 
     @classmethod
     def from_mat(cls, path: str) -> "SMPLModel":
@@ -140,6 +143,10 @@ class SMPLModel:
         raise ValueError(f"Unsupported SMPL model file: {path}")
 
     @property
+    def n_joints(self) -> int:
+        return len(self.parents)
+
+    @property
     def n_betas(self) -> int:
         return self.shapedirs.shape[2]
 
@@ -149,7 +156,7 @@ class SMPLModel:
         Parameters
         ----------
         betas : (n_betas,) shape coefficients (default: zeros, the template)
-        pose : (24, 3) axis-angle rotation of each joint relative to its
+        pose : (n_joints, 3) axis-angle rotation of each joint relative to its
             parent; row 0 is the global orientation (default: rest pose)
         v_shaped : (n_vertices, 3) body in the rest pose, used instead of
             ``v_template + shapedirs @ betas`` (e.g. a measured minimally
@@ -159,10 +166,11 @@ class SMPLModel:
         Returns
         -------
         vertices : (n_vertices, 3)
-        joints : (24, 3) ground-truth joint positions
+        joints : (n_joints, 3) ground-truth joint positions
         """
         betas = np.zeros(self.n_betas) if betas is None else np.asarray(betas, dtype=float)
-        pose = np.zeros((24, 3)) if pose is None else np.asarray(pose, dtype=float).reshape(24, 3)
+        n = self.n_joints
+        pose = np.zeros((n, 3)) if pose is None else np.asarray(pose, dtype=float).reshape(n, 3)
 
         if v_shaped is None:
             v_shaped = self.v_template + self.shapedirs[:, :, : len(betas)] @ betas
@@ -171,8 +179,8 @@ class SMPLModel:
         pose_feature = (rots[1:] - np.eye(3)).ravel()
         v_posed = v_shaped + self.posedirs @ pose_feature
 
-        G = np.zeros((24, 4, 4))
-        for j in range(24):
+        G = np.zeros((n, 4, 4))
+        for j in range(n):
             T = np.eye(4)
             T[:3, :3] = rots[j]
             T[:3, 3] = J[j] - (J[self.parents[j]] if j else 0)

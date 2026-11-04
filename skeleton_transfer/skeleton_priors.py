@@ -36,8 +36,9 @@ class SkeletonPriorConfig:
     weight_symmetry: float = 1.0
     #: Bone lengths proportional to the source ones.
     weight_proportions: float = 1.0
-    #: Axis of the source orthogonal to its symmetry plane (0 = x for SMPL).
-    symmetry_axis: int = 0
+    #: Axis of the source orthogonal to its symmetry plane (0 = x for SMPL,
+    #: 1 = y for SMAL); None picks the axis with the most mirrored pairs.
+    symmetry_axis: Optional[int] = None
     #: Max distance between a joint and its mirrored counterpart on the
     #: source, to be detected as a symmetric pair (source units).
     symmetry_tolerance: float = 0.02
@@ -60,9 +61,14 @@ def bone_length_ratios(joints: np.ndarray, parents: np.ndarray, source_joints: n
     Values far from 1 reveal a failed correspondence: on synthetic SMPL
     bodies the transfers with errors above 10 cm all have some bone shorter
     than 0.6 or longer than 1.6 times its expected length.
+
+    Bones of zero length on the source (SMAL has two coincident root joints)
+    are left out.
     """
-    ratios = bone_lengths(joints, parents) / bone_lengths(source_joints, parents)
-    return ratios / (bone_lengths(joints, parents).sum() / bone_lengths(source_joints, parents).sum())
+    src = bone_lengths(source_joints, parents)
+    keep = src > 1e-6 * src.max()
+    ratios = bone_lengths(joints, parents)[keep] / src[keep]
+    return ratios / (bone_lengths(joints, parents).sum() / src.sum())
 
 
 def is_plausible(
@@ -74,7 +80,7 @@ def is_plausible(
 
 
 def symmetric_joint_pairs(
-    joints: np.ndarray, parents: np.ndarray, axis: int = 0, tolerance: float = 0.02
+    joints: np.ndarray, parents: np.ndarray, axis: Optional[int] = None, tolerance: float = 0.02
 ) -> List[Tuple[int, int]]:
     """Detect left / right joint pairs on a (roughly symmetric) source.
 
@@ -82,8 +88,11 @@ def symmetric_joint_pairs(
     through the root, and paired with the nearest other joint if they are
     mutual nearest neighbours closer than ``tolerance``. Only pairs whose
     parents are the same joint or are themselves a pair are kept, so that the
-    paired bones are really mirror images.
+    paired bones are really mirror images. With ``axis=None`` every axis is
+    tried and the one giving the most pairs is used.
     """
+    if axis is None:
+        return max((symmetric_joint_pairs(joints, parents, a, tolerance) for a in range(joints.shape[1])), key=len)
     mirrored = joints.copy()
     mirrored[:, axis] = 2 * joints[0, axis] - joints[:, axis]
     dist = np.linalg.norm(mirrored[:, None, :] - joints[None, :, :], axis=2)

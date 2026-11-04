@@ -14,13 +14,16 @@ Throughout this module the map goes **from the target to the source**:
 
 Pipeline (:func:`estimate_functional_map`)
 ------------------------------------------
-1. WKS + landmark WKM descriptors on both shapes (:mod:`.descriptors`);
+1. WKS + landmark WKM descriptors (or geodesic distances from the
+   landmarks) on both shapes (:mod:`.descriptors`);
 2. a small ``n_eigs_init`` map is computed in closed form so that it
    preserves the descriptors and commutes with the Laplacians;
 3. ICP refinement: alternate nearest neighbours in the spectral embedding and
    projection of the map onto the orthogonal matrices;
 4. ZoomOut (Melzi et al. 2019): iteratively grow the map to ``n_eigs_final``
-   by alternating point-to-point and functional representations.
+   by alternating point-to-point and functional representations;
+5. optionally, a few more iterations at the final size that also match the
+   geodesic Voronoi cells of the landmarks.
 
 With ``cfg.cmh`` every map of size ``k`` in step 4 (and in the later
 refinements) uses the first ``k`` eigenfunctions followed by the 3 CMH
@@ -35,7 +38,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from .config import FunctionalMapConfig
-from .descriptors import wave_kernel_map, wave_kernel_signature
+from .descriptors import geodesic_descriptors, landmark_geodesics, voronoi_cells, wave_kernel_map, wave_kernel_signature
 from .spectral import LaplaceBasis
 
 #: Eigenvalues below this value are clamped before taking their logarithm.
@@ -158,16 +161,28 @@ def functional_map_to_p2p(
 # ----------------------------------------------------------------------------
 
 
-def compute_descriptors(basis: LaplaceBasis, landmarks: np.ndarray, cfg: FunctionalMapConfig) -> np.ndarray:
-    """WKS + landmark WKM descriptors, subsampled along the scales.
+def compute_descriptors(
+    basis: LaplaceBasis, landmarks: np.ndarray, cfg: FunctionalMapConfig, geodesics: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """Descriptors chosen by ``cfg.descriptors``: WKS + landmark WKM,
+    subsampled along the scales, and / or the geodesic descriptors.
+
+    ``geodesics`` are the distances from the landmarks
+    (:func:`.descriptors.landmark_geodesics`), computed if not given.
 
     Returns an ``(n_vertices, n_descriptors)`` array.
     """
-    evals = np.maximum(basis.evals, MIN_EIGENVALUE)
-    wks = wave_kernel_signature(evals, basis.evecs, cfg.n_descriptor_scales, cfg.wks_variance)
-    wkm = wave_kernel_map(evals, basis.evecs, landmarks, cfg.n_descriptor_scales, cfg.wkm_variance)
-    descriptors = np.hstack((wks, wkm))
-    return descriptors[:, :: cfg.descriptor_subsample]
+    parts = []
+    if cfg.descriptors in ("wave", "both"):
+        evals = np.maximum(basis.evals, MIN_EIGENVALUE)
+        wks = wave_kernel_signature(evals, basis.evecs, cfg.n_descriptor_scales, cfg.wks_variance)
+        wkm = wave_kernel_map(evals, basis.evecs, landmarks, cfg.n_descriptor_scales, cfg.wkm_variance)
+        parts.append(np.hstack((wks, wkm))[:, :: cfg.descriptor_subsample])
+    if cfg.descriptors in ("geodesic", "both"):
+        if geodesics is None:
+            geodesics = landmark_geodesics(basis.vertices, basis.faces, landmarks)
+        parts.append(geodesic_descriptors(geodesics / np.sqrt(basis.area)))
+    return np.hstack(parts)
 
 
 # ----------------------------------------------------------------------------
@@ -377,11 +392,15 @@ def estimate_functional_map(
     """
     k = cfg.n_eigs_init if n_eigs_init is None else n_eigs_init
     forced = (landmarks_src, landmarks_tgt) if cfg.enforce_landmarks else None
+    geodesics_src = geodesics_tgt = None
+    if cfg.descriptors != "wave" or cfg.voronoi_steps:
+        geodesics_src = landmark_geodesics(basis_src.vertices, basis_src.faces, landmarks_src)
+        geodesics_tgt = landmark_geodesics(basis_tgt.vertices, basis_tgt.faces, landmarks_tgt)
 
     # 1) Descriptors. They are normalized on both shapes with the same
     #    per-descriptor norm, measured on the target.
-    desc_tgt = compute_descriptors(basis_tgt, landmarks_tgt, cfg)
-    desc_src = compute_descriptors(basis_src, landmarks_src, cfg)
+    desc_tgt = compute_descriptors(basis_tgt, landmarks_tgt, cfg, geodesics_tgt)
+    desc_src = compute_descriptors(basis_src, landmarks_src, cfg, geodesics_src)
     norms = np.sqrt(np.einsum("ij,ij->j", basis_tgt.mass @ desc_tgt, desc_tgt))
     desc_tgt = desc_tgt / norms
     desc_src = desc_src / norms
@@ -406,4 +425,11 @@ def estimate_functional_map(
         C, p2p = bijective_zoomout(p2p, *bases, k, cfg.n_eigs_final, cfg.zoomout_step, cfg.bijective_weight, forced)
     else:
         C, p2p = zoomout(p2p, *bases, k, cfg.n_eigs_final, cfg.zoomout_step, forced)
+
+    # 5) Voronoi cells of the landmarks as features, scaled to the typical
+    #    norm of the embedding (every row of the indicators has norm 1)
+    if cfg.voronoi_steps:
+        scale = cfg.voronoi_weight * np.median(np.linalg.norm(basis_functions(bases[0], cfg.n_eigs_final), axis=1))
+        features = scale * voronoi_cells(geodesics_src), scale * voronoi_cells(geodesics_tgt)
+        C, p2p = refine_with_features(p2p, *bases, cfg.n_eigs_final, cfg.voronoi_steps, features, forced)
     return FunctionalMapResult(C=C, p2p=p2p)

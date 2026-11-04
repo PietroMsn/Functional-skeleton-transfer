@@ -51,12 +51,15 @@ class LaplaceBasis:
     mass : (n_vertices, n_vertices) sparse lumped mass matrix
     vertices : (n_vertices, 3) coordinates of the shape, needed by the CMH
         functions
+    faces : (n_faces, 3) faces of a mesh, None for a point cloud (needed by
+        the geodesic descriptors)
     """
 
     evals: np.ndarray
     evecs: np.ndarray
     mass: sparse.spmatrix
     vertices: Optional[np.ndarray] = None
+    faces: Optional[np.ndarray] = None
 
     @property
     def area(self) -> float:
@@ -133,4 +136,10 @@ def compute_laplace_basis(
         shift = 1e-8 * sparse.identity(vertices.shape[0])
         evals, evecs = eigsh(L - shift, **eig_kwargs)
 
-    return LaplaceBasis(evals=evals, evecs=evecs, mass=M, vertices=np.asarray(vertices, dtype=float))
+    return LaplaceBasis(
+        evals=evals,
+        evecs=evecs,
+        mass=M,
+        vertices=np.asarray(vertices, dtype=float),
+        faces=None if is_point_cloud else np.asarray(faces, dtype=int),
+    )

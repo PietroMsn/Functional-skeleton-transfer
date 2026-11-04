@@ -4,9 +4,11 @@ import numpy as np
 import pytest
 
 from skeleton_transfer.config import FunctionalMapConfig, TransferConfig
+from skeleton_transfer.descriptors import landmark_geodesics, voronoi_cells
 from skeleton_transfer.diagnostics import bone_affinity, point_to_bone_distances, transfer_diagnostics
 from skeleton_transfer.functional_map import (
-    _cuda_device, bijective_zoomout, functional_map_to_p2p, nearest_neighbors, refine_with_features, zoomout,
+    _cuda_device, bijective_zoomout, estimate_functional_map, functional_map_to_p2p, nearest_neighbors,
+    refine_with_features, zoomout,
 )  # fmt: skip
 from skeleton_transfer.spectral import compute_laplace_basis
 
@@ -122,3 +124,35 @@ def test_restart_selection_validated():
         TransferConfig(functional_map=FunctionalMapConfig(restart_selection="other")).validate()
     with pytest.raises(ValueError):  # "refined" needs the iterative refinement
         TransferConfig(functional_map=FunctionalMapConfig(restart_selection="refined")).validate()
+
+
+def test_landmark_geodesics_and_voronoi_cells():
+    """On the unit sphere the graph distances approach the great-circle ones,
+    on the mesh and on the point cloud (whose denser rings near the poles
+    disconnect the 8-NN graph); the poles split it into hemispheres."""
+    vertices, faces = ellipsoid_mesh(48, 96)
+    poles = np.array([0, len(vertices) - 1])
+    exact = np.arccos(np.clip(vertices @ vertices[poles].T, -1, 1))
+    for f in (faces, None):
+        d = landmark_geodesics(vertices, f, poles)
+        assert np.abs(d - exact).mean() < 0.05 * np.pi
+    cells = voronoi_cells(landmark_geodesics(vertices, faces, poles))
+    np.testing.assert_array_equal(cells.sum(axis=1), 1)
+    far = np.abs(vertices[:, 2]) > 0.1
+    np.testing.assert_array_equal(cells[far, 0], vertices[far, 2] > 0)
+
+
+@pytest.mark.parametrize("changes", [dict(descriptors="geodesic"), dict(descriptors="both"), dict(voronoi_steps=3)])
+def test_geodesic_descriptors_and_voronoi_recover_the_identity(changes):
+    """An ellipsoid onto itself, the symmetries broken by 4 landmarks."""
+    vertices, faces = ellipsoid_mesh(radii=(1.0, 0.7, 0.5))
+    basis = compute_laplace_basis(vertices, faces, 60)
+    landmarks = np.array([0, len(vertices) - 1, 1 + 10 * 48, 1 + 10 * 48 + 12])
+    cfg = FunctionalMapConfig(n_eigs_final=40, enforce_landmarks=True, **changes)
+    p2p = estimate_functional_map(basis, basis, landmarks, landmarks, cfg).p2p
+    assert np.linalg.norm(vertices[p2p] - vertices, axis=1).mean() < 0.05
+
+
+def test_descriptors_validated():
+    with pytest.raises(ValueError):
+        TransferConfig(functional_map=FunctionalMapConfig(descriptors="other")).validate()

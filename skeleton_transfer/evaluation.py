@@ -48,7 +48,8 @@ Variant = Tuple[str, bool, TransferConfig]  # name, uses the extra landmarks, co
 
 def default_variants() -> List[Variant]:
     """Pipeline variants: (name, uses knee/elbow landmarks, config)."""
-    base = TransferConfig()
+    base = TransferConfig(loose_clothing=None)  # only in the last two variants
+    base.functional_map.voronoi_steps = 0  # only in the last variant
     fm = base.functional_map
     restarts = replace(fm, restart_init_sizes=(10, 30, 40))
     both = replace(fm, enforce_landmarks=True, restart_init_sizes=(10, 30, 40))
@@ -69,6 +70,10 @@ def default_variants() -> List[Variant]:
         ("all + priors, per-chain restarts, loose clothing", True,
          replace(base, functional_map=replace(both, restart_selection="chains"), iterative=IterativeConfig(),
                  skeleton_priors=SkeletonPriorConfig(), loose_clothing=LooseClothingConfig())),
+        ("all + priors, per-chain restarts, loose clothing, Voronoi", True,
+         replace(base, functional_map=replace(both, restart_selection="chains", voronoi_steps=5),
+                 iterative=IterativeConfig(), skeleton_priors=SkeletonPriorConfig(),
+                 loose_clothing=LooseClothingConfig())),
     ]  # fmt: skip
 
 
@@ -76,6 +81,20 @@ def with_cmh(variants: List[Variant]) -> List[Variant]:
     """The same variants with the CMH functions in the maps (named ``"<name>, CMH"``)."""
     return [(f"{name}, CMH", extra, replace(cfg, functional_map=replace(cfg.functional_map, cmh=True)))
             for name, extra, cfg in variants]  # fmt: skip
+
+
+def with_functional_map(variants: List[Variant], label: str, **changes) -> List[Variant]:
+    """The same variants with other functional map parameters (named ``"<name>, <label>"``)."""
+    return [(f"{name}, {label}", extra, replace(cfg, functional_map=replace(cfg.functional_map, **changes)))
+            for name, extra, cfg in variants]  # fmt: skip
+
+
+def map_variants(variants: List[Variant]) -> List[Variant]:
+    """The same variants with the landmark geodesic descriptors, the Voronoi
+    cells of the landmarks, or both."""
+    return (with_functional_map(variants, "geodesic", descriptors="geodesic")
+            + with_functional_map(variants, "Voronoi", voronoi_steps=5)
+            + with_functional_map(variants, "geodesic + Voronoi", descriptors="geodesic", voronoi_steps=5))  # fmt: skip
 
 
 def with_plain_zoomout(variants: List[Variant]) -> List[Variant]:
@@ -101,13 +120,20 @@ class Evaluator:
     ----------
     source : the rigged source, with the 7 landmarks of the paper
     variants : defaults to :func:`default_variants`
+    extra_landmarks : source landmarks added by the variants that use them
+        (knees and elbows on SMPL)
     """
 
-    def __init__(self, source: SourceShape, variants: Optional[List[Variant]] = None):
+    def __init__(
+        self,
+        source: SourceShape,
+        variants: Optional[List[Variant]] = None,
+        extra_landmarks: np.ndarray = SMPL_EXTRA_LANDMARKS,
+    ):
         self.variants = variants or default_variants()
         self.config = TransferConfig()
         self.source = source
-        self.source_extra = replace(source, landmarks=np.concatenate((source.landmarks, SMPL_EXTRA_LANDMARKS)))
+        self.source_extra = replace(source, landmarks=np.concatenate((source.landmarks, extra_landmarks)))
         mask = locality_mask(source.skinning_weights, source.parents, self.config.regressor.skinning_weight_threshold)
         self.regressor = fit_spatial_regressor(source.vertices, source.joints, mask, self.config.regressor)
         self.basis_src = compute_laplace_basis(source.vertices, source.faces, self.config.spectral.n_eigs)
@@ -170,7 +196,8 @@ def report(runs: List[dict]) -> None:
 
     first, last = names[0], names[-1]
     print(f"\nError per joint group (mm): {first} -> {last}")
-    for c in conditions:
+    smpl = [c for c in conditions if all(len(r["gt"]) == len(SMPL_JOINT_NAMES) for r in select(last, c))]
+    for c in smpl:  # the groups are SMPL joints
         b, a = select(first, c), select(last, c)
         groups = "  ".join(
             f"{g}: {1000 * np.mean([np.linalg.norm(r['joints'][idx] - r['gt'][idx], axis=1).mean() for r in b]):5.1f}"
@@ -178,9 +205,10 @@ def report(runs: List[dict]) -> None:
             for g, idx in JOINT_GROUPS.items()
         )
         print(f"{c:14s} {groups}")
-    err = np.array([np.linalg.norm(r["joints"] - r["gt"], axis=1) for r in select(last)])
-    worst = np.argsort(-err.mean(axis=0))[:5]
-    print(f"worst joints ({last}):", ", ".join(f"{SMPL_JOINT_NAMES[j]} {1000 * err[:, j].mean():.0f}" for j in worst))
+    err = np.array([np.linalg.norm(r["joints"] - r["gt"], axis=1) for c in smpl for r in select(last, c)])
+    if len(err):
+        worst = np.argsort(-err.mean(axis=0))[:5]
+        print(f"worst joints ({last}):", ", ".join(f"{SMPL_JOINT_NAMES[j]} {1000 * err[:, j].mean():.0f}" for j in worst))
 
     # Unsupervised diagnostics vs ground-truth error, over every stage of every run
     stages = [h for r in runs for h in r["history"]]

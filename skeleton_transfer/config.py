@@ -3,7 +3,10 @@ Configuration of the skeleton transfer pipeline.
 
 Every numeric constant that used to be hard-coded in the scripts lives here,
 grouped by pipeline stage. The defaults reproduce the settings used in the
-paper / original code, so ``TransferConfig()`` is a good starting point.
+paper / original code, except for the bijective ZoomOut, the Voronoi cells
+of the landmarks in the functional map and the handling of loose clothing
+(all on, none harmful on tight bodies), so
+``TransferConfig()`` is a good starting point.
 
 Example
 -------
@@ -64,6 +67,18 @@ class FunctionalMapConfig:
     wkm_variance: float = 7.0
     #: Keep one descriptor column every ``descriptor_subsample``.
     descriptor_subsample: int = 10
+    #: Descriptors of the initial map: ``"wave"`` (WKS + landmark WKM),
+    #: ``"geodesic"`` (graph geodesic distances from the landmarks, see
+    #: :func:`.descriptors.geodesic_descriptors`) or ``"both"``. The
+    #: subsampling applies to the wave descriptors only.
+    descriptors: str = "wave"
+    #: Iterations at the final size after the ZoomOut that also match the
+    #: geodesic Voronoi cells of the landmarks (a coarse segmentation into
+    #: body parts, see :func:`.functional_map.refine_with_features`); 0 = off
+    #: (the original method).
+    voronoi_steps: int = 5
+    #: Weight of the Voronoi cells, relative to the norm of the eigenfunctions.
+    voronoi_weight: float = 1.0
 
     # --- energy and optimizer -----------------------------------------------
     #: Weight of the descriptor preservation term ``||C A - B||^2 / 2``.
@@ -183,8 +198,8 @@ class TransferConfig:
     skeleton_priors: Optional[SkeletonPriorConfig] = None
     #: Iterative skeleton <-> correspondence refinement (None = off).
     iterative: Optional[IterativeConfig] = None
-    #: Loose clothing handling (None = off).
-    loose_clothing: Optional[LooseClothingConfig] = None
+    #: Loose clothing handling (on by default, None = off).
+    loose_clothing: Optional[LooseClothingConfig] = field(default_factory=LooseClothingConfig)
 
     def validate(self) -> None:
         """Raise ``ValueError`` if the parameters are inconsistent."""
@@ -196,6 +211,8 @@ class TransferConfig:
             )
         if fm.n_eigs_init > fm.n_eigs_final:
             raise ValueError("functional_map.n_eigs_init must be <= n_eigs_final.")
+        if fm.descriptors not in ("wave", "geodesic", "both"):
+            raise ValueError(f"Unknown descriptors {fm.descriptors!r}.")
         if fm.restart_selection not in ("bone_ratio", "refined", "chains"):
             raise ValueError(f"Unknown restart_selection {fm.restart_selection!r}.")
         if fm.restart_selection in ("refined", "chains") and self.iterative is None:

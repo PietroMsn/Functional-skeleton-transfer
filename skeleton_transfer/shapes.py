@@ -32,6 +32,15 @@ SMPL_LANDMARKS = np.array([3509, 3076, 414, 5909, 6683, 3216, 2444]) - 1
 #: the same points on the target to constrain the limbs better.
 SMPL_EXTRA_LANDMARKS = np.array([1043, 4529, 1643, 5112])
 
+#: Landmarks on the SMAL template (0-based), chosen as on SMPL: top of the
+#: back, chest, nose, the four paws (front +y, front -y, hind +y, hind -y) and
+#: tip of the tail.
+SMAL_LANDMARKS = np.array([18, 326, 1845, 1341, 3293, 1643, 3595, 28])
+
+#: Optional extra SMAL landmarks: front of the front knees and back of the
+#: hocks (+y, -y), the analogues of the knees and elbows of SMPL.
+SMAL_EXTRA_LANDMARKS = np.array([73, 2050, 108, 2085])
+
 
 @dataclass
 class SourceShape:

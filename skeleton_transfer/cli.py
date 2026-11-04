@@ -60,6 +60,12 @@ def parse_args(argv=None):
     parser.add_argument(
         "--restarts", action="store_true", help="retry with other initial maps if the skeleton is implausible"
     )
+    parser.add_argument(
+        "--no-loose-clothing", action="store_true", help="do not leave out the source vertices hidden under loose clothing"
+    )
+    parser.add_argument(
+        "--no-voronoi", action="store_true", help="do not match the Voronoi cells of the landmarks in the functional map"
+    )
     parser.add_argument("--output", help="save joints, maps and regressor to this .npz file")
     parser.add_argument("--no-plot", action="store_true", help="do not open the 3D viewer")
     parser.add_argument("--screenshot", help="save the 3D view to this image instead of opening a window")
@@ -113,6 +119,10 @@ def main(argv=None):
         skeleton_priors=SkeletonPriorConfig() if args.priors else None,
         iterative=IterativeConfig() if args.iterative else None,
     )
+    if args.no_loose_clothing:
+        config.loose_clothing = None
+    if args.no_voronoi:
+        config.functional_map.voronoi_steps = 0
     if args.restarts:
         config.functional_map.restart_init_sizes = (10, 30, 40)
     # Every parameter can be changed here, e.g.:

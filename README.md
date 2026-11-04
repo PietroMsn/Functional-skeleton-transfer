@@ -54,7 +54,8 @@ Sample data:
    is minimized exactly, in closed form.
 2. **Correspondence.** A functional map between the Laplace-Beltrami eigenbases of
    the two shapes is estimated from WKS descriptors plus wave-kernel maps of 7
-   landmarks, then refined with spectral ICP and ZoomOut.
+   landmarks. It is then refined with spectral ICP and ZoomOut, and finally with the geodesic
+   Voronoi cells of the landmarks.
 3. **Transfer.** The regressor is moved onto the target either through the
    functional map (*spectral transfer*) or through the induced point-to-point
    map (*pointwise transfer*).
@@ -69,7 +70,7 @@ skeleton_transfer/
     config.py                all parameters, grouped by stage (dataclasses)
     shapes.py                SourceShape / TargetShape, .mat / .obj / .off loading
     spectral.py              Laplace-Beltrami eigenbasis
-    descriptors.py           Wave Kernel Signature / Wave Kernel Map
+    descriptors.py           Wave Kernel Signature / Map, landmark geodesics and Voronoi cells
     functional_map.py        functional map: optimization, ICP, ZoomOut
     regressor.py             localized joint regressor
     transfer.py              end-to-end pipeline (transfer_skeleton)
@@ -184,6 +185,20 @@ The current version computes the same pipeline with these differences:
   frame of the target.
 * The locality and sparsity terms of Eq. 13 coincide for a binary mask and
   are merged into a single term (weight 1000 + 100).
+* **Three additions on by default.**
+  * ZoomOut is bijective. `FunctionalMapConfig(bijective=False)` restores the original one.
+  * After the ZoomOut, 5 more refinement steps also match the geodesic Voronoi cells of
+    the landmarks, a coarse segmentation into body parts. `FunctionalMapConfig(voronoi_steps=0)`
+    or `--no-voronoi` turns this off. `FunctionalMapConfig(descriptors="geodesic")` replaces the
+    WKS/WKM descriptors of the initial map with geodesic distances from the landmarks.
+  * The source vertices hidden under loose clothing (a skirt over the legs) are left out of the
+    joint regressor (`skeleton_transfer/clothing.py`). `TransferConfig(loose_clothing=None)` or
+    `--no-loose-clothing` turns this off.
+
+  None of the three degrades the transfer on tight bodies. Measured on the dev split of the
+  unified benchmark (`tools/benchmark_unified.py`, 890 real and synthetic samples), the Voronoi
+  cells lower the mean joint error of the full pipeline from 39.9 to 34.4 mm and its failures
+  from 50 to 13.
 * Exact k-d tree nearest neighbours (SciPy) replace FLANN, and the
   eigendecomposition uses a fixed starting vector, so runs are reproducible.
 
