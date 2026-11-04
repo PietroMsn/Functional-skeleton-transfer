@@ -256,7 +256,7 @@ $\C^\top$ after ICP (the inverse of an orthogonal map). Only ZoomOut is
 replaced: the skeleton-guided refinement below keeps one direction.
 
 \paragraph{Landmark Voronoi cells.}
-% code: feature/target-skeleton-priors, after cd70d3d (not yet committed),
+% code: feature/target-skeleton-priors, commit e4653bf,
 % skeleton_transfer/descriptors.py:landmark_geodesics, voronoi_cells;
 % FunctionalMapConfig.voronoi_steps = 5 (default), descriptors = "wave" | "geodesic" | "both"
 The landmarks enter the initial map only through their wave kernel maps, and
@@ -882,7 +882,7 @@ and that its use is for templates and skeletons without a parametric model.
 \subsection{Unified benchmark: clothed humans, children and animals}
 \label{sec:exp_unified}
 % ----------------------------------------------------------------------------
-% code: feature/target-skeleton-priors, after cd70d3d (not yet committed),
+% code: feature/target-skeleton-priors, commit e4653bf,
 % tools/benchmark_unified.py DATASET_ROOT --split dev --smal smal_CVPR2017.pkl --shard I/8;
 % baseline / per-chain / loose clothing: samples/unified_dev_s*.pkl; Voronoi and geodesic + Voronoi:
 % samples/unified_mapfull_s*.pkl (seeded with the 160 samples of samples/unified_map_s*.pkl).
