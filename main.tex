@@ -360,6 +360,31 @@ the knee under a skirt is extrapolated from the visible shin and thigh. Since
 the refinement uses the transferred skeleton, the corrected joints also guide
 the following correspondences.
 
+% ----------------------------------------------------------------------------
+\subsection{Choice of the template}
+\label{sec:templates}
+% ----------------------------------------------------------------------------
+% code: feature/target-skeleton-priors, after e4653bf (not yet committed),
+% skeleton_transfer/templates.py
+A single template has to absorb, through the functional map, every difference
+of proportions between itself and the target, and the map fails when the
+difference is too large (Sec.~\ref{sec:exp_unified}: the mean SMAL animal on
+a hippopotamus). Parametric models often offer several templates with the
+same skeleton, landmarks and skinning, such as the means of the shape
+clusters of SMAL. We then choose the source before the transfer, without any
+ground truth, by comparing the proportions of the landmarks. Let $g_{ab}$ be
+the geodesic distance between landmarks $a$ and $b$ (along the mesh edges, or
+along the $k$-NN graph of a point cloud) and $\bar g$ its mean over the pairs;
+the cost of a source $\M$ for the target $\N$ is
+\begin{equation}
+  c(\M, \N) = \operatorname{mean}_{a < b} \left| \frac{g^\M_{ab}}{\bar g^\M}
+    - \frac{g^\N_{ab}}{\bar g^\N} \right|,
+\end{equation}
+invariant to the size and, up to the stretching of the surface, to the pose.
+The source with the lowest cost is used for the whole pipeline. The cost
+needs one shortest-path computation per landmark and per shape, negligible
+against the transfer.
+
 % ============================================================================
 \section{Experiments}
 \label{sec:experiments}
@@ -1054,25 +1079,52 @@ transfers, $p < 10^{-20}$). Every group improves. The largest gains are on
 BUFF (from 64.5 to 49.2\,mm, from 11 failures to none), on the children (from
 61.3 to 40.3\,mm, from 4 failures to none) and on the animals (from 101.2 to
 73.8\,mm). The remaining failures are five scans of humans and the eight
-hippopotamids, whose massive bodies and short legs defeat every variant (their
-error goes from 297 to 183\,mm). Using the geodesic distances also as
+hippopotamids, whose massive bodies and short legs defeat every variant with
+the mean SMAL template (their error goes from 297 to 183\,mm). Using the geodesic distances also as
 descriptors of the initial map lowers the mean error a little further (to
 33.5\,mm), but less reliably: four transfers of BUFF fail, and three
 transfers get worse by more than 30\,mm. We therefore make the Voronoi cells
 with the WKS/WKM descriptors the default of the pipeline.
 
+\paragraph{Family templates for the animals.}
+% code: after e4653bf (not yet committed): tools/benchmark_unified.py ... --datasets synthetic_animals
+% --smal-families smal_CVPR2017_data.pkl -> samples/unified_fam_s*.pkl (mean template: samples/unified_rot_s*.pkl,
+% the same runs as unified_mapfull, rerun); oracle on all five templates: scratch family_templates.py.
+With the source chosen among the means of the five SMAL families
+(Sec.~\ref{sec:templates}) instead of the mean SMAL template, the error on the
+animals halves, from 73.8 to 36.9\,mm, and the failures drop from eight to
+one; over the whole development set the mean error goes from 34.4 to
+33.0\,mm and the failures from 13 to 6. Every family improves: felids from
+39.2 to 25.3\,mm, canids from 33.3 to 31.5, equids from 46.0 to 28.4, bovids
+from 43.0 to 34.3 and hippopotamids from 182.8 to 62.6\,mm (from eight
+failures to one). Thirty transfers improve and four get worse by more than
+1\,mm (at most by 9.9\,mm; Wilcoxon $p = 1.5\cdot 10^{-8}$). The landmark
+proportions pick the family of the target in 33 of the 35 cases (two canids
+get the felid and the equid template, losing 20 and 8\,mm), and running the
+five templates and keeping the best \emph{a posteriori} gives the same mean
+error as the true family (36.1\,mm, one failure): the choice is close to the
+best possible with these templates. The comparison favours the family
+templates, since the synthetic animals are drawn around the same family means
+(shape coefficients with half of the standard deviation of each cluster); on
+real animals the closest template will be farther from the target. The final
+diagnostics of the transfer are worse at this choice (48.3, 48.7 and
+52.0\,mm when choosing the template with the best segment consistency, bone
+ratio or spectral-pointwise gap), since they compare the transferred skeleton
+with each source rather than the source with the target.
+
 \paragraph{Children and animals.} The transfer is not specific to the
-human template: with the SMAL template the error on felids, canids, equids
+human template: with the mean SMAL template the error on felids, canids, equids
 and bovids is 33--46\,mm (22--26\% of the mean bone length), comparable in
-relative terms with the real clothed humans (16--30\%). Small children remain the
+relative terms with the real clothed humans (16--30\%), and with the family
+templates 25--34\,mm. Small children remain the
 hardest case relative to their size: the error on the children is 54\% of
 the mean bone length, and 121\% for the infants (factor 1, 64.4\,mm for bones
 of 53\,mm), against 9.6\% for the synthetic adults. Besides the different
 proportions of an infant, which the map from an adult template has to absorb,
 the proportion prior of Sec.~\ref{sec:priors} and the plausibility check
 assume the proportions of the source, which do not hold for an infant; a
-source closer to the target (a child template) would remove both
-mismatches.
+source closer to the target (a child template, chosen as the family templates
+of the animals) would remove both mismatches.
 
 \paragraph{Limitations.} The ground truth is the joints of a registered
 parametric body, which has its own error under loose clothing; on BUFF it is
