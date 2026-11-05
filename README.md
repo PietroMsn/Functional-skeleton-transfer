@@ -73,6 +73,7 @@ skeleton_transfer/
     descriptors.py           Wave Kernel Signature / Map, landmark geodesics and Voronoi cells
     functional_map.py        functional map: optimization, ICP, ZoomOut
     regressor.py             localized joint regressor
+    templates.py             choice of the source among templates with the same skeleton
     transfer.py              end-to-end pipeline (transfer_skeleton)
     visualization.py         PyVista viewer (optional)
 data/                        example source (SMPL) and target (DFAUST)
@@ -199,6 +200,11 @@ The current version computes the same pipeline with these differences:
   unified benchmark (`tools/benchmark_unified.py`, 890 real and synthetic samples), the Voronoi
   cells lower the mean joint error of the full pipeline from 39.9 to 34.4 mm and its failures
   from 50 to 13.
+* **Choice of the template.** When several templates share the skeleton (the means of the five
+  SMAL families, `templates.smal_family_sources`), `templates.select_source` picks the one whose
+  geodesic landmark proportions are closest to the target. On the 35 dev animals of the unified
+  benchmark (`--smal-families smal_CVPR2017_data.pkl`) the mean joint error drops from 73.8 to
+  36.9 mm and the failures from 8 to 1 (hippopotamids: from 182.8 to 62.6 mm).
 * Exact k-d tree nearest neighbours (SciPy) replace FLANN, and the
   eigendecomposition uses a fixed starting vector, so runs are reproducible.
 

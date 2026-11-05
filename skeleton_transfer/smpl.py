@@ -13,6 +13,7 @@ import glob
 import os
 import pickle
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import scipy.io as sio
@@ -194,9 +195,10 @@ class SMPLModel:
             joints = joints + transl
         return vertices, joints
 
-    def as_source(self, landmarks: np.ndarray = SMPL_LANDMARKS) -> SourceShape:
-        """The rest-pose template as a transfer source."""
-        vertices, joints = self.forward()
+    def as_source(self, landmarks: np.ndarray = SMPL_LANDMARKS, betas: Optional[np.ndarray] = None) -> SourceShape:
+        """The rest-pose template as a transfer source, with the shape
+        ``betas`` (default: the mean shape; e.g. the mean of a SMAL family)."""
+        vertices, joints = self.forward(betas)
         return SourceShape(
             vertices=vertices,
             faces=self.faces,

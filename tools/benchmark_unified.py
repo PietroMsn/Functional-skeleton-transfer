@@ -12,6 +12,11 @@ and the SMAL template for the animals. From the repository root::
         --shard 1/8 --out unified_s1.pkl --resume
     python tools/benchmark_unified.py --report unified_s*.pkl
 
+With ``--smal-families smal_CVPR2017_data.pkl`` the source of every animal is
+the SMAL family mean with the closest landmark proportions
+(:mod:`skeleton_transfer.templates`), and its variants are named
+``"<name>, family template"``.
+
 Results are grouped by ``dataset/category``. The errors are in millimetres
 and also relative to the mean ground-truth bone length (kids and animals have
 other sizes than adults); a failure is a mean error above 10 cm.
@@ -32,6 +37,9 @@ from skeleton_transfer.scans import load_sample, make_target
 from skeleton_transfer.shapes import SMAL_EXTRA_LANDMARKS, SMAL_LANDMARKS
 from skeleton_transfer.skeleton_priors import bone_lengths
 from skeleton_transfer.smpl import SMPLModel
+from skeleton_transfer.templates import SMAL_FAMILIES, select_source, smal_family_sources
+
+FAMILY_SUFFIX = ", family template"
 
 DEFAULT_VARIANTS = [
     "baseline",
@@ -86,6 +94,9 @@ def main():
     parser.add_argument("--variants", nargs="+", default=DEFAULT_VARIANTS,
                         help="names from evaluation.default_variants, or '... loose clothing' with ', geodesic' "
                         "or ', geodesic + Voronoi' (evaluation.map_variants)")  # fmt: skip
+    parser.add_argument("--smal-families", metavar="PKL",
+                        help="smal_CVPR2017_data.pkl: use the SMAL family mean with the closest landmark proportions "
+                        "as the source of every animal (variants named '<name>, family template')")  # fmt: skip
     parser.add_argument("--n-points", type=int, default=8000)
     parser.add_argument("--max-distance", type=float, default=0.3)
     parser.add_argument("--limit", type=int, help="only the first N samples (they cover all the groups)")
@@ -123,7 +134,7 @@ def main():
         rows = rows[index - 1 :: count]
     print(f"{len(rows)} samples")
 
-    sources = {}  # body model -> (evaluator, target landmarks, regressor)
+    sources = {}  # body model -> (evaluator or list of evaluators, target landmarks, regressor)
 
     def source_for(body_model):
         if body_model not in sources:
@@ -131,8 +142,13 @@ def main():
                 if not args.smal:
                     raise SystemExit("--smal is required for the animals")
                 model = SMPLModel.from_file(args.smal)
+                if args.smal_families:  # one evaluator per family mean, chosen per target
+                    evaluator = [Evaluator(s, variants, SMAL_EXTRA_LANDMARKS)
+                                 for s in smal_family_sources(model, args.smal_families)]  # fmt: skip
+                else:
+                    evaluator = Evaluator(model.as_source(SMAL_LANDMARKS), variants, SMAL_EXTRA_LANDMARKS)
                 sources[body_model] = (
-                    Evaluator(model.as_source(SMAL_LANDMARKS), variants, SMAL_EXTRA_LANDMARKS),
+                    evaluator,
                     np.concatenate((SMAL_LANDMARKS, SMAL_EXTRA_LANDMARKS)),
                     model.J_regressor,
                 )
@@ -153,18 +169,28 @@ def main():
 
     for row in rows:
         sample = load_sample(os.path.join(args.root, row["file"]))
-        if names <= have[sample.name]:
-            continue
         body_model = "smal" if row["dataset"] == "synthetic_animals" else "smpl"
+        families = body_model == "smal" and args.smal_families
+        if {n + FAMILY_SUFFIX if families else n for n in names} <= have[sample.name]:
+            continue
         evaluator, landmarks, regressor = source_for(body_model)
-        evaluator.runs = [r for r in saved if r["target"] == sample.name]
         rng = np.random.default_rng([args.seed, zlib.crc32(sample.name.encode())])
         target, gt = make_target(sample, regressor, args.n_points, landmarks, args.max_distance, rng)
+        suffix = FAMILY_SUFFIX if families else ""
+        mine = [r for r in saved if r["target"] == sample.name and r["variant"].endswith(suffix)
+                and (families or not r["variant"].endswith(FAMILY_SUFFIX))]  # fmt: skip
+        if families:  # the family mean with the closest landmark proportions (all the landmarks)
+            template = select_source([e.source_extra for e in evaluator], target)
+            evaluator = evaluator[template]
+        evaluator.runs = [dict(r, variant=r["variant"][: len(r["variant"]) - len(suffix)]) for r in mine]
         condition = f"{row['dataset']}/{row['category']}"
         print(evaluator.evaluate(target, gt, condition, sample.name), flush=True)
         for r in evaluator.runs:
-            r.update(file=row["file"], parents=evaluator.source.parents)
-        saved = [r for r in saved if r["target"] != sample.name] + evaluator.runs
+            r.update(file=row["file"], parents=evaluator.source.parents, variant=r["variant"] + suffix)
+            if families:
+                r["template"] = SMAL_FAMILIES[template]
+        saved = [r for r in saved if not any(r is m for m in mine) and not (
+            r["target"] == sample.name and r["variant"] in {x["variant"] for x in evaluator.runs})] + evaluator.runs
         with open(args.out, "wb") as f:  # saved after every sample: long runs can be interrupted
             pickle.dump(saved, f)
     summary(saved)
