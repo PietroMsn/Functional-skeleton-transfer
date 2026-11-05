@@ -364,7 +364,7 @@ the following correspondences.
 \subsection{Choice of the template}
 \label{sec:templates}
 % ----------------------------------------------------------------------------
-% code: feature/target-skeleton-priors, after e4653bf (not yet committed),
+% code: feature/target-skeleton-priors, commit c8181d7,
 % skeleton_transfer/templates.py
 A single template has to absorb, through the functional map, every difference
 of proportions between itself and the target, and the map fails when the
@@ -1087,7 +1087,7 @@ transfers get worse by more than 30\,mm. We therefore make the Voronoi cells
 with the WKS/WKM descriptors the default of the pipeline.
 
 \paragraph{Family templates for the animals.}
-% code: after e4653bf (not yet committed): tools/benchmark_unified.py ... --datasets synthetic_animals
+% code: commit c8181d7: tools/benchmark_unified.py ... --datasets synthetic_animals
 % --smal-families smal_CVPR2017_data.pkl -> samples/unified_fam_s*.pkl (mean template: samples/unified_rot_s*.pkl,
 % the same runs as unified_mapfull, rerun); oracle on all five templates: scratch family_templates.py.
 With the source chosen among the means of the five SMAL families

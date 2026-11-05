@@ -30,7 +30,7 @@ latexmk -pdf main.tex
 | 2026-10-31 | `d3f1581` (feature/target-skeleton-priors) | per-chain restarts in the method; analysis of the restart choice (whole-candidate scores, fusions, per-chain oracle) and per-chain variant on the real scans (Tab. 6) and the synthetic benchmark; SMPL fitting comparison updated |
 | 2026-11-01 | `cd70d3d` (feature/target-skeleton-priors) | loose clothing: curvature-based detection of covered source vertices with a metric neighbourhood, visible-only regressor; oracles, failed partial map, seed-0/seed-1 synthetic table, real scans (Tab. 6) |
 | 2026-11-03 | `e4653bf` (feature/target-skeleton-priors) | landmark Voronoi cells after ZoomOut (default) and geodesic descriptors in the method; unified benchmark (dev split, 890 samples: 4D-DRESS, CloSe-Di, BUFF, synthetic adults / clothed / children / SMAL animals) with the loose clothing and Voronoi variants (new table); study of the functional map ingredients on 57 samples (new table); loose clothing on by default |
-| 2026-11-05 | after `e4653bf` (feature/target-skeleton-priors, not yet committed) | choice of the template by landmark proportions (method); SMAL family templates on the animals of the unified benchmark |
+| 2026-11-05 | `c8181d7` (feature/target-skeleton-priors) | choice of the template by landmark proportions (method); SMAL family templates on the animals of the unified benchmark |
 
 ## Reproducing the numbers
 
