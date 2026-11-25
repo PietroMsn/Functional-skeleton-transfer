@@ -97,6 +97,11 @@ def plot_transfer(
     _add_skeleton(plotter, result.joints_pointwise, source.parents, highlight_joint=highlight_joint)
     plotter.add_text("Pointwise transfer (p2p map)", font_size=10)
 
+    # Front view of each shape (SMPL and the example target are y-up).
+    for column in range(3):
+        plotter.subplot(0, column)
+        plotter.view_xy()
+
     if screenshot is not None:
         plotter.show(screenshot=screenshot)
     else:

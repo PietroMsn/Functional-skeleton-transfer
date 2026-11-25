@@ -8,3 +8,8 @@ venv/
 !tests/data/*.npz
 *.egg-info/
 .pytest_cache/
+
+# SMPL model: licensed, download it from https://smpl.is.tue.mpg.de (see README)
+data/*.pkl
+data/basicmodel_*
+data/SMPL_*

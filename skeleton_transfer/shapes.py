@@ -16,12 +16,21 @@ All indices (faces, landmarks) are stored **0-based**, even though the
 provided ``.mat`` files use MATLAB's 1-based convention.
 """
 
+import inspect
 import os
+import pickle
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 import scipy.io as sio
+
+#: ``data/`` folder of the repository, with the example target (and the SMPL
+#: model, once downloaded).
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
+#: Example target of the paper: a remeshed Dynamic FAUST shape with its 7 landmarks.
+EXAMPLE_TARGET = os.path.join(DATA_DIR, "50007_knees_001806.mat")
 
 #: Indices (0-based) of the 7 landmarks on the SMPL template used in the paper.
 #: They must be given in the same order as the landmarks of the target.
@@ -72,20 +81,111 @@ class TargetShape:
     landmarks: np.ndarray
 
 
-def load_smpl_source(path: str, landmarks: np.ndarray = SMPL_LANDMARKS) -> SourceShape:
-    """Load the SMPL template from a ``.mat`` export of the SMPL model.
+#: SMPL files searched by :func:`find_smpl_model`, in order of preference. The
+#: example of the paper uses the neutral model of SMPL v1.1.0 (the
+#: ``basicmodel_m_lbs.mat`` file of the original release is a ``.mat`` export
+#: of it, identical field by field despite its name).
+SMPL_MODEL_NAMES = (
+    "basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl",
+    "SMPL_NEUTRAL.pkl",
+    "basicmodel_m_lbs.mat",
+)
 
-    The file must contain the standard SMPL fields: ``v_template``, ``f``,
-    ``J_regressor``, ``weights`` and ``kintree_table``. The joints are
-    obtained with SMPL's own regressor applied to the rest-pose template.
+SMPL_DOWNLOAD_HELP = (
+    "The SMPL model is not distributed with this code (see its license). Register at "
+    "https://smpl.is.tue.mpg.de, download 'SMPL for Python' (version 1.1.0) and copy "
+    "basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl into the data/ folder, or pass its path with --source."
+)
+
+
+def find_smpl_model(folder: Optional[str] = None) -> str:
+    """Path of the SMPL model in ``folder`` (see :data:`SMPL_MODEL_NAMES`).
+
+    By default the ``data/`` folder of the current directory and of the
+    repository are searched. Raises ``FileNotFoundError`` with download
+    instructions if no model is found.
     """
-    data = sio.loadmat(path)
+    folders = [folder] if folder else list(dict.fromkeys([os.path.abspath("data"), DATA_DIR]))
+    for name in SMPL_MODEL_NAMES:
+        for f in folders:
+            path = os.path.join(f, name)
+            if os.path.exists(path):
+                return path
+    where = " or ".join(f'"{f}"' for f in folders)
+    raise FileNotFoundError(f"No SMPL model found in {where}. {SMPL_DOWNLOAD_HELP}")
 
-    vertices = np.asarray(data["v_template"], dtype=float)
+
+class _ChumpyStub:
+    """Placeholder for the ``chumpy`` objects stored in the official SMPL files
+    (only the fields that are plain arrays are used)."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+
+class _SMPLUnpickler(pickle.Unpickler):
+    """Reads the official SMPL ``.pkl`` files without installing chumpy.
+
+    Only NumPy / SciPy objects are created, every chumpy class is replaced by
+    :class:`_ChumpyStub` and any other class is refused.
+    """
+
+    def find_class(self, module, name):
+        root = module.split(".")[0]
+        if root == "chumpy":
+            return _ChumpyStub
+        if module.startswith("scipy.sparse"):  # e.g. scipy.sparse.csc, a deprecated namespace
+            module = "scipy.sparse"
+        if root in ("numpy", "scipy", "copy_reg", "copyreg", "__builtin__", "builtins", "_codecs"):
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"Unexpected class {module}.{name} in the SMPL file.")
+
+
+def _loadmat(path: str) -> dict:
+    """``scipy.io.loadmat``, returning sparse arrays where SciPy supports it
+    (the default return type of sparse fields is deprecated)."""
+    if "spmatrix" in inspect.signature(sio.loadmat).parameters:
+        return sio.loadmat(path, spmatrix=False)
+    return sio.loadmat(path)
+
+
+def _read_smpl_fields(path: str) -> dict:
+    """The SMPL fields of a ``.pkl`` (official release) or ``.mat`` export."""
+    if path.lower().endswith(".mat"):
+        return _loadmat(path)
+    with open(path, "rb") as f:
+        return _SMPLUnpickler(f, encoding="latin1").load()
+
+
+def _as_array(value) -> np.ndarray:
+    if hasattr(value, "toarray"):  # SciPy sparse matrix (the SMPL joint regressor)
+        value = value.toarray()
+    return np.asarray(value, dtype=float)
+
+
+def load_smpl_source(path: Optional[str] = None, landmarks: np.ndarray = SMPL_LANDMARKS) -> SourceShape:
+    """Load the SMPL template as the source of the transfer.
+
+    Parameters
+    ----------
+    path : the official SMPL model (``.pkl``, e.g.
+        ``basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl``) or a ``.mat`` export
+        with the same fields. Defaults to the model found in ``data/`` by
+        :func:`find_smpl_model`.
+    landmarks : landmark vertices on the template (the 7 of the paper)
+
+    The fields used are ``v_template``, ``f``, ``J_regressor``, ``weights``
+    and ``kintree_table``; the joints are SMPL's own regressor applied to the
+    rest-pose template.
+    """
+    data = _read_smpl_fields(path or find_smpl_model())
+
+    vertices = _as_array(data["v_template"])
     faces = np.asarray(data["f"], dtype=int)  # already 0-based in SMPL
-
-    smpl_regressor = np.asarray(data["J_regressor"].todense())
-    joints = smpl_regressor @ vertices
+    joints = _as_array(data["J_regressor"]) @ vertices
 
     # First row of kintree_table holds the parent of each joint; the root's
     # parent is stored as a sentinel value, we make it point to itself.
@@ -97,7 +197,7 @@ def load_smpl_source(path: str, landmarks: np.ndarray = SMPL_LANDMARKS) -> Sourc
         faces=faces,
         joints=joints,
         parents=parents,
-        skinning_weights=np.asarray(data["weights"], dtype=float),
+        skinning_weights=_as_array(data["weights"]),
         landmarks=np.asarray(landmarks, dtype=int),
     )
 
@@ -117,7 +217,7 @@ def load_target_mat(
         vertices, the faces and the landmark indices. Pass ``faces_key=None``
         for point clouds.
     """
-    data = sio.loadmat(path)
+    data = _loadmat(path)
     faces = None
     if faces_key is not None:
         faces = np.asarray(data[faces_key], dtype=int) - 1

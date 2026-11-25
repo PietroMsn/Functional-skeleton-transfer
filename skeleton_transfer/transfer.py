@@ -1,27 +1,30 @@
 """
-End-to-end skeleton transfer.
+End-to-end skeleton transfer (paper, Sec. 4.2, Algorithm 1).
 
 Given a rigged :class:`~skeleton_transfer.shapes.SourceShape` and an unrigged
 :class:`~skeleton_transfer.shapes.TargetShape`, :func:`transfer_skeleton`
 
-1. fits a localized joint regressor ``R`` on the source;
-2. computes the Laplace-Beltrami bases of both shapes;
+1. fits the spatial joint regressor ``R`` on the source (Step 1, Eq. 13);
+2. computes the Laplace-Beltrami bases of both shapes (Sec. 3.1);
 3. estimates the functional map ``C`` (target -> source) and the induced
-   point-to-point map ``p2p`` (source vertex -> target vertex);
+   point-to-point map ``p2p`` (source vertex -> target vertex) (Step 2);
 4. transfers the joints in two ways:
 
-   - **spectral transfer**: express ``R`` in the source eigenbasis
-     (``R_hat = R @ Phi_src``), move the target coordinates into the source
-     basis with ``C`` and apply it:
+   - **spectral transfer** (the method of the paper): convert ``R`` into the
+     spectral regressor ``R_hat = R @ Phi_src`` (Step 3, Eq. 8), move the
+     Fourier coefficients of the target coordinates (Eq. 2) into the source
+     basis with ``C`` and apply it (Step 4, Eq. 14):
 
          J_target = R_hat @ C @ (Phi_tgt^+ @ V_target)
 
-   - **pointwise transfer**: apply ``R`` to the target vertices matched to
-     each source vertex:
+   - **pointwise transfer** (for comparison): apply ``R`` to the target
+     vertices matched to each source vertex:
 
          J_target = R @ V_target[p2p]
 
-Both results are expressed in the coordinate frame of the input target.
+Both results are expressed in the coordinate frame of the input target (the
+original code rescaled the target towards the area of the source, by mistake
+twice, and returned the joints in that frame).
 """
 
 import logging
@@ -84,7 +87,7 @@ def transfer_skeleton(
     config.validate()
     k = config.functional_map.n_eigs_final
 
-    # 1) Localized regressor on the source
+    # 1) Spatial regressor on the source (Step 1)
     mask = locality_mask(
         source.skinning_weights, source.parents, config.regressor.skinning_weight_threshold
     )
@@ -102,16 +105,16 @@ def transfer_skeleton(
         target.vertices, target.faces, config.spectral.n_eigs, config.target_is_point_cloud or target.faces is None
     )
 
-    # 3) Correspondence
+    # 3) Functional map (Step 2)
     logger.info("Estimating the functional map...")
     fmap = estimate_functional_map(
         basis_src, basis_tgt, source.landmarks, target.landmarks, config.functional_map
     )
 
     # 4a) Spectral transfer through C
-    regressor_hat = regressor @ basis_src.evecs[:, :k]  # (n_joints, k)
-    target_coords_hat = basis_tgt.project(target.vertices, k)  # (k, 3)
-    joints_spectral = regressor_hat @ fmap.C @ target_coords_hat
+    regressor_hat = regressor @ basis_src.evecs[:, :k]  # spectral regressor, Eq. (8), (n_joints, k)
+    target_coords_hat = basis_tgt.project(target.vertices, k)  # Eq. (2), (k, 3)
+    joints_spectral = regressor_hat @ fmap.C @ target_coords_hat  # Eq. (14)
 
     # 4b) Pointwise transfer through p2p
     joints_pointwise = regressor @ target.vertices[fmap.p2p]

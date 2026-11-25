@@ -3,9 +3,14 @@ A Functional Skeleton Transfer - command line entry point.
 
 Transfers the SMPL skeleton onto a target shape and shows the result.
 
+The SMPL model is not distributed with the code: download it from
+https://smpl.is.tue.mpg.de ("SMPL for Python", v1.1.0) and copy
+``basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl`` into ``data/`` (or pass its
+path with ``--source``).
+
 Examples
 --------
-Run on the example data (``data/`` folder)::
+Run on the example target of the paper (``data/`` folder)::
 
     skeleton-transfer
 
@@ -26,16 +31,23 @@ Target point cloud (no faces)::
 
 import argparse
 import logging
+import time
 
 import numpy as np
 
 from . import TransferConfig, load_smpl_source, load_target, transfer_skeleton
+from .shapes import EXAMPLE_TARGET
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source", default="data/basicmodel_m_lbs.mat", help="SMPL model in .mat format")
-    parser.add_argument("--target", default="data/50007_knees_001806.mat", help="target shape: .mat file or mesh (.obj, .off, .ply, ...)")
+    parser.add_argument(
+        "--source",
+        help="SMPL model (official .pkl, or a .mat export); default: the one found in data/",
+    )
+    parser.add_argument(
+        "--target", default=EXAMPLE_TARGET, help="target shape: .mat file or mesh (.obj, .off, .ply, ...)"
+    )
     parser.add_argument(
         "--target-landmarks",
         help="text file with the target landmark vertex indices, same order as the source ones "
@@ -78,7 +90,7 @@ def plot_saved_results(args):
         joints_spectral=saved["joints_spectral"],
         joints_pointwise=saved["joints_pointwise"],
         regressor=saved["regressor"],
-        mask=None,
+        mask=None,  # not saved, not needed for plotting
         C=saved["C"],
         p2p=saved["p2p"],
     )
@@ -89,19 +101,23 @@ def main(argv=None):
     args = parse_args(argv)
     logging.basicConfig(level=logging.WARNING if args.quiet else logging.INFO, format="%(message)s")
 
-    if args.plot_results:
-        plot_saved_results(args)
-        return
+    try:
+        if args.plot_results:
+            plot_saved_results(args)
+            return
+        source = load_smpl_source(args.source)
+        target = _load_target(args)
+    except (FileNotFoundError, ValueError) as err:  # missing model / data: a message, not a traceback
+        raise SystemExit(f"Error: {err}")
 
     config = TransferConfig(target_is_point_cloud=args.target_point_cloud)
     # Every parameter can be changed here, e.g.:
     # config.functional_map.n_eigs_final = 80
     # config.regressor.skinning_weight_threshold = 0.2
 
-    source = load_smpl_source(args.source)
-    target = _load_target(args)
-
+    start = time.perf_counter()
     result = transfer_skeleton(source, target, config)
+    logging.info("Skeleton transferred in %.0f s.", time.perf_counter() - start)
 
     if args.output:
         np.savez(
@@ -116,6 +132,11 @@ def main(argv=None):
         logging.info("Results saved to %s", args.output)
 
     if not args.no_plot or args.screenshot:
+        try:
+            import pyvista  # noqa: F401
+        except ImportError:
+            logging.warning('The viewer needs PyVista: pip install -e ".[viz]" (or run with --no-plot).')
+            return
         from .visualization import plot_transfer
 
         plot_transfer(source, target, result, screenshot=args.screenshot)

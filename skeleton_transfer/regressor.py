@@ -1,24 +1,28 @@
 """
-Localized joint regressor on the source shape.
+Localized joint regressor on the source shape (paper, Sec. 4.2, Step 1).
 
-We look for a matrix ``R`` of shape ``(n_joints, n_vertices)`` such that the
-joints are a linear combination of the vertices, ``J ~= R @ V``, with two
-priors that make ``R`` transferable to other shapes:
+We look for the spatial regressor ``R`` of Eq. (1), a matrix of shape
+``(n_joints, n_vertices)`` such that the joints are a linear combination of
+the vertices, ``J = R @ V``, with two priors that make ``R`` transferable to
+other shapes:
 
 - **locality**: joint ``j`` connects bone ``j`` to its parent bone, so it may
-  only depend on the vertices that are skinned to *both* bones (the
-  "locality mask" ``F``, see :func:`locality_mask`);
-- **partition of unity**: every row of ``R`` sums to one, so the regressed
-  joint is an (affine) average of vertices and moves rigidly with them.
+  only depend on the vertices that are skinned to *both* bones (the mask ``F``
+  of the paper, see :func:`locality_mask`);
+- **convexity** (partition of unity): every row of ``R`` sums to one, so the
+  regressed joint is an (affine) average of vertices and moves rigidly with
+  them.
 
-The energy minimized by :func:`fit_spatial_regressor` is
+The energy of Eq. (13) minimized by :func:`fit_spatial_regressor` is
 
-    E(R) = w_fit * ||R V - J||^2
-         + w_loc * ||R * (1 - F)||^2          (coefficients outside the mask)
-         + w_pou * ||R 1 - 1||^2
+    E(R) = w_fit * ||R V - J||^2              reconstruction, Eq. (9)
+         + w_loc * ||R * (1 - F)||^2          locality + sparsity, Eqs. (10-11)
+         + w_pou * ||R 1 - 1||^2              convexity, Eq. (12)
 
-(In the paper this is Eq. 13; its locality and sparsity terms coincide for a
-binary mask and are merged here into ``w_loc``.)
+The locality term ``||R - R * F||^2`` and the sparsity term
+``||R * |F - 1| ||^2`` of the paper coincide for a binary mask, so they are
+merged into one term whose weight is the sum of the two (see
+:class:`~skeleton_transfer.config.RegressorConfig`).
 
 Closed-form solution
 --------------------
@@ -37,7 +41,9 @@ and substituting it back leaves ``(A_S r_S - b)^T K (A_S r_S - b)`` with the
 4x4 matrix ``K = w_loc (A_O A_O^T + w_loc I)^-1``. Its minimizer is not unique
 (4 equations, ``|S|`` unknowns): we take the minimum-norm one, which spreads
 the weight evenly over the vertices of the mask. The original implementation
-approximated the minimizer with 1000 Adam iterations started from ``R = 0``.
+approximated the minimizer with 1000 Adam iterations started from ``R = 0``,
+which had not converged (up to 2.6 cm of error on the SMPL joints, against
+exact joints here; see ``tests/test_parity.py``).
 """
 
 import numpy as np

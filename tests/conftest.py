@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-#: Folder with the example SMPL / DFAUST files (not shipped with the package).
+#: Folder with the example target and the SMPL model (downloaded separately).
 DATA_DIR = os.environ.get("SKELETON_TRANSFER_DATA", os.path.join(REPO_ROOT, "data"))
 REFERENCE = os.path.join(REPO_ROOT, "tests", "data", "original_reference.npz")
 

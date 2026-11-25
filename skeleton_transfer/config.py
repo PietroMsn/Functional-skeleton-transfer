@@ -2,8 +2,8 @@
 Configuration of the skeleton transfer pipeline.
 
 Every numeric constant that used to be hard-coded in the scripts lives here,
-grouped by pipeline stage. The defaults reproduce the settings used in the
-paper / original code, so ``TransferConfig()`` is a good starting point.
+grouped by pipeline stage. The defaults are those of the code released with
+the paper, so ``TransferConfig()`` reproduces its results.
 
 Example
 -------
@@ -28,12 +28,14 @@ class SpectralConfig:
 
 @dataclass
 class FunctionalMapConfig:
-    """Estimation of the functional map between target and source."""
+    """Estimation of the functional map between target and source (Sec. 4.2, Step 2)."""
 
     # --- spectral sizes -----------------------------------------------------
-    #: Size of the initial (small) functional map optimized from descriptors.
+    #: Size of the initial (small) functional map optimized from descriptors
+    #: (20 x 20 in the paper).
     n_eigs_init: int = 20
-    #: Size of the final functional map after ZoomOut upsampling.
+    #: Size of the final functional map after ZoomOut upsampling (120 x 120 in
+    #: the paper); also the size of the spectral regressor of Eq. (8).
     n_eigs_final: int = 120
     #: Number of eigenfunctions added at each ZoomOut iteration.
     zoomout_step: int = 10
@@ -62,18 +64,20 @@ class FunctionalMapConfig:
 
 @dataclass
 class RegressorConfig:
-    """Fitting of the localized joint regressor on the source shape."""
+    """Fitting of the localized joint regressor on the source shape (Sec. 4.2, Step 1)."""
 
     #: A vertex is considered part of a bone if its skinning weight for that
-    #: bone is above this threshold (used to build the locality mask).
+    #: bone is above this threshold (used to build the mask ``F`` of Eq. 10).
     skinning_weight_threshold: float = 0.1
 
-    #: Weight of the joint reconstruction term ``||R V - J||^2``.
+    #: Weight of the reconstruction term ``||R V - J||^2`` (Eq. 9).
     weight_fit: float = 1.0
-    #: Weight of the locality term, penalizing coefficients outside the mask.
-    #: (The original code had two identical terms with weights 1000 and 100.)
+    #: Weight of the coefficients outside the mask: the locality (Eq. 10) and
+    #: sparsity (Eq. 11) terms, identical for a binary mask, with the weights
+    #: 1000 and 100 of the released code.
     weight_locality: float = 1100.0
-    #: Weight of the partition-of-unity term ``||R 1 - 1||^2``.
+    #: Weight of the convexity term ``||R 1 - 1||^2`` (Eq. 12), as in the
+    #: released code.
     weight_partition_of_unity: float = 10.0
 
 

@@ -18,14 +18,31 @@ Musoni, P. and Marin, R. and Melzi, S. and Castellani, U., A Functional Skeleton
 
 ## Quick-start
 
-```bash
-pip install -e ".[viz]"
-skeleton-transfer          # or: python main.py
-```
+1. Install (Python 3.9 or newer; a virtual environment is recommended):
 
-This transfers the skeleton of the SMPL template (source) onto a remeshed
-Dynamic FAUST shape (target), both stored in `data/`, and opens a 3D viewer
-with the source skeleton and the two transferred skeletons.
+   ```bash
+   git clone https://github.com/PietroMsn/Functional-skeleton-transfer.git
+   cd Functional-skeleton-transfer
+   pip install -e ".[viz]"
+   ```
+
+2. Download the SMPL model. It is not distributed with this code, because of
+   its license: register at [smpl.is.tue.mpg.de](https://smpl.is.tue.mpg.de),
+   download **SMPL for Python** (version 1.1.0) and copy
+   `basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl` (in the `models` folder of the
+   archive) into the `data/` folder. (The `basicmodel_m_lbs.mat` file of the first
+   release is a `.mat` export of the same model and still works.)
+
+3. Run:
+
+   ```bash
+   skeleton-transfer          # or: python main.py
+   ```
+
+This transfers the skeleton of the SMPL template (source) onto the remeshed
+Dynamic FAUST shape of the paper (target, in `data/`), in about a minute, and
+opens a 3D viewer with the source skeleton and the two transferred skeletons.
+Pass `--source PATH` to use a SMPL model stored elsewhere.
 
 Useful options (`python main.py --help` for the full list):
 
@@ -46,6 +63,16 @@ Sample data:
 
 ## How it works
 
+The code follows Algorithm 1 of the paper (Sec. 4.2):
+
+| step | paper | code |
+| --- | --- | --- |
+| Laplace-Beltrami basis and Fourier coefficients | Sec. 3.1, Eq. 2 | `spectral.py` |
+| Step 1: spatial regressor `R` (reconstruction, locality, sparsity, convexity) | Eqs. 9-13 | `regressor.py` |
+| Step 2: functional map `C` (WKS + landmark WKM, ICP, ZoomOut 20 → 120) | Sec. 3.2, 4.2 | `descriptors.py`, `functional_map.py` |
+| Step 3: spectral regressor `R Φ` | Eq. 8 | `transfer.py` |
+| Step 4: transferred skeleton `R Φ C Φ⁺ X` | Eq. 14 | `transfer.py` |
+
 1. **Joint regressor on the source.** A linear regressor `R` (joints = `R @ vertices`)
    is fitted on the source. Each joint may only use the vertices skinned to both
    bones it connects, and each row of `R` sums to one. The energy is quadratic and
@@ -53,9 +80,9 @@ Sample data:
 2. **Correspondence.** A functional map between the Laplace-Beltrami eigenbases of
    the two shapes is estimated from WKS descriptors plus wave-kernel maps of 7
    landmarks, then refined with spectral ICP and ZoomOut.
-3. **Transfer.** The regressor is moved onto the target either through the
-   functional map (*spectral transfer*) or through the induced point-to-point
-   map (*pointwise transfer*).
+3. **Transfer.** The regressor is moved onto the target through the functional
+   map (*spectral transfer*, the method of the paper) and, for comparison,
+   through the induced point-to-point map (*pointwise transfer*).
 
 ## Code structure
 
@@ -72,7 +99,7 @@ skeleton_transfer/
     regressor.py             localized joint regressor
     transfer.py              end-to-end pipeline (transfer_skeleton)
     visualization.py         PyVista viewer (optional)
-data/                        example source (SMPL) and target (DFAUST)
+data/                        example target (DFAUST); put the SMPL model here
 tests/                       unit tests + comparison with the original code
 tools/make_original_reference.py   runs the 2021 code to produce that reference
 ```
@@ -85,7 +112,7 @@ explaining its role; the defaults are the ones used in the paper.
 ```python
 from skeleton_transfer import TransferConfig, load_smpl_source, load_target, transfer_skeleton
 
-source = load_smpl_source("data/basicmodel_m_lbs.mat")
+source = load_smpl_source()   # the SMPL model in data/, or load_smpl_source("path/to/model.pkl")
 target = load_target("data/50007_knees_001806.mat")
 # or any mesh with its landmarks (same order as the source ones):
 # target = load_target("scan.obj", landmarks="scan_landmarks.txt")
@@ -126,26 +153,34 @@ The current version computes the same pipeline with these differences:
   frame of the target.
 * The locality and sparsity terms of Eq. 13 coincide for a binary mask and
   are merged into a single term (weight 1000 + 100).
-* Exact k-d tree nearest neighbours (SciPy) replace FLANN, and the
+* Exact nearest neighbours replace FLANN (an approximate search), and the
   eigendecomposition uses a fixed starting vector, so runs are reproducible.
+* **Faster.** The transfer on the example takes less than a minute on an
+  8-core desktop, against about 3 minutes for the original code (the
+  nearest-neighbour searches in the spectral embeddings use matrix products
+  instead of a k-d tree, with the same results).
+* The SMPL model is read from the official `.pkl` file (without installing
+  chumpy) and is no longer shipped in `data/`.
 
 ## Requirements and tests
 
 The only required packages are NumPy, SciPy and
 [robust_laplacian](https://github.com/nmwsharp/robust-laplacians-py);
 PyVista is needed for the viewer and trimesh for mesh formats other than
-OBJ/OFF. Tested on Python 3.13 (numpy 2.5, scipy 1.18, robust_laplacian 1.1).
+OBJ/OFF. Tested on Windows with Python 3.13 and 3.14 (numpy 2.5, scipy 1.18,
+robust_laplacian 1.1, pyvista 0.49).
 
 ```bash
 pip install -e ".[all]"
 pytest
 ```
 
-The tests comparing with the original code need the example files in `data/`
-(or in the folder pointed by `SKELETON_TRANSFER_DATA`) and take about two
-minutes; they are skipped if the files are missing. The reference outputs in
-`tests/data/` can be regenerated with `tools/make_original_reference.py`,
-which runs the original code and needs TensorFlow.
+The tests comparing with the original code need the SMPL model and the
+example target in `data/` (or in the folder pointed by
+`SKELETON_TRANSFER_DATA`) and take about a minute; they are skipped if the
+files are missing. The reference outputs in `tests/data/` can be regenerated
+with `tools/make_original_reference.py`, which runs the original code and
+needs TensorFlow.
 
 ## License
 Please check the license terms (also of third parts software) before downloading and/or using the code, the models and the data.

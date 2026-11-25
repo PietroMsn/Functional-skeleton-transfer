@@ -1,5 +1,9 @@
 """
-Functional map estimation between the target and the source shape.
+Functional map estimation between the target and the source shape
+(paper, Sec. 3.2 and Sec. 4.2, Step 2).
+
+The map is estimated as in Nogneng and Ovsjanikov (2017) and refined with
+ZoomOut (Melzi et al. 2019), with the parameters of the released code.
 
 Conventions
 -----------
@@ -51,13 +55,23 @@ class FunctionalMapResult:
     p2p: np.ndarray
 
 
-def nearest_neighbors(points: np.ndarray, queries: np.ndarray) -> np.ndarray:
+def nearest_neighbors(points: np.ndarray, queries: np.ndarray, chunk_size: int = 1024) -> np.ndarray:
     """Index of the nearest row of ``points`` for each row of ``queries``.
 
-    Exact k-d tree search. (The original code used FLANN, which is
-    approximate; any NN backend can be plugged in here.)
+    Exact search. In the low dimensions of the first ICP steps a k-d tree is
+    fastest; in the spectral embeddings of ZoomOut (up to 120 dimensions) a
+    k-d tree degenerates into a slow brute force, so the squared distances
+    ``|p|^2 - 2 q.p`` (``|q|^2`` does not change the argmin) are computed with
+    matrix products, ``chunk_size`` queries at a time. (The original code
+    used FLANN, an approximate search.)
     """
-    _, idx = cKDTree(points).query(queries, k=1)
+    if points.shape[1] <= 8:
+        return cKDTree(points).query(queries, k=1)[1]
+    sq_norms = np.einsum("ij,ij->i", points, points)
+    idx = np.empty(len(queries), dtype=int)
+    for start in range(0, len(queries), chunk_size):
+        q = queries[start : start + chunk_size]
+        idx[start : start + len(q)] = np.argmin(sq_norms[None, :] - 2 * (q @ points.T), axis=1)
     return idx
 
 

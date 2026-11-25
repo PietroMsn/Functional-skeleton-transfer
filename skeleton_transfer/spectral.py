@@ -1,5 +1,5 @@
 """
-Laplace-Beltrami eigenbasis.
+Laplace-Beltrami eigenbasis (paper, Sec. 3.1).
 
 For a shape with ``n`` vertices we compute the generalized eigenproblem
 
@@ -12,7 +12,9 @@ vertex) onto the first ``k`` eigenfunctions is
 
     f_hat = Phi[:, :k].T @ M @ f
 
-i.e. ``Phi.T @ M`` is the left pseudo-inverse of ``Phi``.
+i.e. ``Phi.T @ M`` is the pseudo-inverse ``Phi^+`` of the paper
+(``Phi^+ Phi = I``). Applied to the vertex coordinates it gives their
+Fourier coefficients, Eq. (2).
 """
 
 from dataclasses import dataclass
@@ -51,7 +53,10 @@ class LaplaceBasis:
         vertex coordinates.
         """
         phi = self.evecs if k is None else self.evecs[:, :k]
-        return phi.T @ (self.mass @ f)
+        # Same as phi.T @ (M @ f), computed as ((M f)^T phi)^T: with a long
+        # inner dimension, some BLAS builds are orders of magnitude slower on
+        # the transposed-left-operand product.
+        return ((self.mass @ f).T @ phi).T
 
 
 def compute_laplace_basis(
